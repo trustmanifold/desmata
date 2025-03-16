@@ -34,7 +34,7 @@ def components(tmp_path: Path) -> Injector:
 
 def test_local_files(tmp_path: Path, components: Injector):
     cell_factory = components.get(CellFactory)
-    builtins: DesmataBuiltins = cell_factory.get(DesmataBuiltins)
+    builtins = cell_factory.get(DesmataBuiltins)
 
     foo = (tmp_path / "foo")
     foo.write_text("bar")

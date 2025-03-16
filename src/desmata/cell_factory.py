@@ -2,6 +2,8 @@ import importlib
 import os
 import platform
 import re
+import shutil
+import stat
 from pathlib import Path
 
 from sqlalchemy import Engine
@@ -10,17 +12,22 @@ from desmata.builtins.cell import Deps as DesmataBuiltinDeps
 from desmata.builtins.cell import DesmataBuiltins
 from desmata.builtins.cell import Tools as DesmataBuiltinTools
 from desmata.exceptions import BadCellClassException
-from desmata.interface import Closure, Dependency, SpecificCell
+from desmata.fs import create_hard_links
 from desmata.higher_protocols import CellFactory
+from desmata.interface import Closure, Dependency, SpecificCell
 from desmata.lower_protocols import (
     Caller,
-    DirHasher,
+    CellContext,
     DBFactory,
     EnvFilter,
     EnvVars,
+    ExternalPath,
+    IdGetter,
+    InternalPath,
     Loggers,
+    PathHasher,
+    ProtoDependency,
     UserspaceFiles,
-    CellContext
 )
 
 default_passthrough_vars = [
@@ -58,18 +65,24 @@ class LocalCaller(Caller):
 
 
 class BasicContext(CellContext):
+    name: str
     caller: Caller
-    cell_dir: Path
-    home: Path
+    id_dep_dir: InternalPath
+    hash_dep_dir: InternalPath
+    cell_dir: InternalPath
+    home: InternalPath
     loggers: Loggers
 
+    _userspace: UserspaceFiles
+
     def __init__(
-        self, name: str, cell_dir: Path, userspace: UserspaceFiles, loggers: Loggers
+        self, name: str, cell_dir: InternalPath, userspace: UserspaceFiles, loggers: Loggers
     ):
         self.cell_dir = cell_dir
         self.caller = LocalCaller()
+        self._userspace = userspace
 
-        self.home = userspace.data / "cells" / name / "home" / "desmata-user"
+        self.home = self._userspace.data / "cells" / name / "home" / "desmata-user"
         for subdir in home_subdirs:
             home_subdir = self.home / subdir
             home_subdir.mkdir(parents=True, exist_ok=True)
@@ -98,6 +111,74 @@ class BasicContext(CellContext):
                     env[passthru_var] = val
         return env
 
+    def get_internal_id_path(self, external_path: ExternalPath, *, id_getter: IdGetter) -> InternalPath | None:
+        dep_id = id_getter(external_path)
+        internal_path = self._userspace.deps_by_id / dep_id
+        if internal_path.exists():
+            return internal_path
+        else:
+            return None
+            
+    def internalize_ids_hashes(
+        self, 
+        *, 
+        proto_dep: ProtoDependency,
+        id_getter: IdGetter,
+        path_hasher: PathHasher,
+    ) -> tuple[str, str]:
+        """
+        Internalizes a dependency from an external path to the desmata-controlled storage.
+        Creates both id-based and hash-based references for the dependency.
+        Returns the ID and hash as strings.
+        """
+
+        # Get dependency ID and prepare paths
+        dep_id = id_getter(proto_dep.target)
+        id_path = self._userspace.deps_by_id / dep_id
+        
+        # If the id_path already exists, we just need to ensure the hash path exists
+        if id_path.exists():
+            hash_val = path_hasher.get_hash(id_path)
+            hash_path = self._userspace.deps_by_hash / hash_val
+            
+            # Create the hash path if it doesn't exist
+            if not hash_path.exists():
+                create_hard_links(id_path, hash_path)
+            
+            return dep_id, hash_val
+        
+        # Create the id directory
+        id_path.mkdir(parents=True, exist_ok=True)
+        
+        # Process the target path
+        target_path = Path(proto_dep.target)
+        
+        # Check if target is read-only and on the same device (likely in nix store)
+        target_stat = os.stat(target_path)
+        data_stat = os.stat(self._userspace.data)
+        is_readonly = not bool(target_stat.st_mode & stat.S_IWUSR)
+        same_device = target_stat.st_dev == data_stat.st_dev
+        
+        # Either create hard links (if safe) or copy the files
+        if is_readonly and same_device:
+            create_hard_links(target_path, id_path)
+        else:
+            # Not in nix store or on different device - copy the data
+            if target_path.is_dir():
+                shutil.copytree(target_path, id_path, dirs_exist_ok=True)
+            else:
+                shutil.copy2(target_path, id_path / target_path.name)
+        
+        # Create the hash-based path
+        hash_val = path_hasher.get_hash(id_path)
+        hash_path = self._userspace.deps_by_hash / hash_val
+        
+        # Create hard links from id_path to hash_path
+        if not hash_path.exists():
+            create_hard_links(id_path, hash_path)
+                
+        return dep_id, hash_val
+
     def get_env_filter(
         self,
         *,
@@ -117,7 +198,7 @@ class BasicContext(CellContext):
 
         def filter(env: EnvVars) -> EnvVars:
             inner_env = env_vars.copy()
-            inner_env.update(*self._get_passed_thru_vars(passthru))
+            inner_env.update(self._get_passed_thru_vars(passthru))
             if exec_path := inner_env.get("PATH"):
                 exec_path = ":".join([*exec_path.split(":"), *deps])
             return inner_env
@@ -204,7 +285,7 @@ class DefaultCellFactory(CellFactory):
         self.log.msg.debug(f"CONTEXT, {context.__dict__}")
 
         # get a hasher
-        hasher: DirHasher
+        hasher: PathHasher
         ipfs_dep: DesmataBuiltinDeps.IPFS
         if CellType is DesmataBuiltins:
             ipfs_dep = DesmataBuiltinDeps.IPFS.build_or_get(context)

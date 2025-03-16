@@ -65,47 +65,110 @@ class Nix(Tool):
 
     @staticmethod
     def get_id(path: Path) -> str:
-        return path.replace("/nix/store", "")
+        return str(path).replace("/nix/store/", "")
 
 
     @staticmethod
     def dep_dags(info: list[NixPathInfo], root_path: str) -> Iterator[NixDependencyTree]:
-        path_infos: dict[str, NixPathInfo] = {x.path : x for x in info}
+        """
+        Returns dependencies in topological order (leaves first, root last).
+        This ensures that when internalizing dependencies, all dependencies
+        of a node are processed before the node itself.
+        """
+        path_infos: dict[str, NixPathInfo] = {str(x.path): x for x in info}
         built_trees: dict[str, NixDependencyTree] = {}
-        to_process = deque([(root_path, 0)])  # (path, depth)
-        seen = set()
-
+        
+        # Get all nodes and build an adjacency list
+        all_nodes = set()
+        edges = {}
+        reverse_edges = {}
+        
+        # Build the graph
+        for path_info in path_infos.values():
+            path_str = str(path_info.path)
+            all_nodes.add(path_str)
+            edges[path_str] = set()
+            
+            for ref in path_info.references:
+                ref_str = str(ref)
+                if ref_str in path_infos:  # Only include references we have info for
+                    edges[path_str].add(ref_str)
+                    if ref_str not in reverse_edges:
+                        reverse_edges[ref_str] = set()
+                    reverse_edges[ref_str].add(path_str)
+        
+        # Find leaf nodes (nodes with no dependencies)
+        leaf_nodes = []
+        for node in all_nodes:
+            if node in edges and not edges[node]:
+                leaf_nodes.append(node)
+        
+        # Process nodes in topological order (leaves first)
+        processed = set()
+        to_process = deque(leaf_nodes)
+        
         while to_process:
-            current_path, depth = to_process.popleft()
-
-            if current_path in seen:
+            current_path = to_process.popleft()
+            
+            if current_path in processed:
                 continue
-
-            seen.add(current_path)
-            info = path_infos[current_path]
-
-            # Queue up the next level of dependencies
-            for ref in info.references:
-                if ref in path_infos and ref not in seen:
-                    to_process.append((ref, depth + 1))
-
-            # Build current node with whatever dependencies we've built so far
+                
+            # Check if all dependencies have been processed
+            if current_path in edges:
+                deps = edges[current_path]
+                if not all(dep in processed for dep in deps):
+                    # Put it back in the queue to process later
+                    to_process.append(current_path)
+                    continue
+            
+            processed.add(current_path)
+            
+            # Skip paths that don't have info
+            if current_path not in path_infos:
+                continue
+                
+            curr_info = path_infos[current_path]
+            
+            # Build dependencies list from already built trees
             deps = [
-                built_trees[ref] 
-                for ref in info.references 
-                if ref in path_infos and ref in built_trees
+                built_trees[str(ref)] 
+                for ref in curr_info.references 
+                if str(ref) in path_infos and str(ref) in built_trees
             ]
-
+            
             # Calculate total size recursively - include current node (1) plus all dependencies
             total_size = 1 + sum(dep.size for dep in deps)
-
+            
             tree = NixDependencyTree(
                 size=total_size,
-                info=info,
+                info=curr_info,
                 immediate_dependencies=deps
             )
             built_trees[current_path] = tree
-
-            # Yield the current state of the root tree
-            yield built_trees[root_path]
+            
+            # Yield the current tree
+            yield tree
+            
+            # Add any parents whose dependencies are now all processed
+            if current_path in reverse_edges:
+                for parent in reverse_edges[current_path]:
+                    # Check if all dependencies of parent are now processed
+                    if all(dep in processed for dep in edges.get(parent, set())):
+                        to_process.append(parent)
+        
+        # If root_path wasn't processed, process it now
+        if root_path not in processed and root_path in path_infos:
+            curr_info = path_infos[root_path]
+            deps = [
+                built_trees[str(ref)] 
+                for ref in curr_info.references 
+                if str(ref) in path_infos and str(ref) in built_trees
+            ]
+            total_size = 1 + sum(dep.size for dep in deps)
+            tree = NixDependencyTree(
+                size=total_size,
+                info=curr_info,
+                immediate_dependencies=deps
+            )
+            yield tree
 

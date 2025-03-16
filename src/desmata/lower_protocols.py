@@ -8,9 +8,6 @@ from typing import NewType, Protocol, TypeAlias, runtime_checkable
 
 from sqlalchemy.engine import Engine
 
-from desmata.messages import NixPathInfo
-
-
 class LogSubject(StrEnum):
     proc = auto()
     msg = auto()
@@ -50,9 +47,9 @@ DependencyId = NewType("DependencyId", str)
 InternalPath = NewType("InternalPath", Path) # somewhere that desmata controls, like ~/.desmata/data
 ExternalPath = NewType("ExternalPath", Path) # elsewhere in the system, like /nix/store
 
-class DirHasher(Protocol):
-    def get_dir_hash(self, dir: Path):
-        pass
+class PathHasher(Protocol):
+    def get_hash(self, dir: Path) -> str:
+        raise NotImplementedError()
 
 @dataclass
 class CellHashes:
@@ -82,21 +79,22 @@ class Caller(Protocol):
 
 @runtime_checkable
 class UserspaceFiles(Protocol):
-    home: Path
-    config: Path
-    cache: Path
-    data: Path
-    state: Path
-
+    home: InternalPath
+    config: InternalPath
+    cache: InternalPath
+    data: InternalPath
+    state: InternalPath
+    deps_by_id: InternalPath
+    deps_by_hash: InternalPath
 
 @runtime_checkable
 class DBFactory(Protocol):
     def get_engine(self) -> Engine:
         "creates a db if it doesn't exist"
-        pass
+        raise NotImplementedError()
 
     def delete_db(self) -> None:
-        pass
+        raise NotImplementedError()
 
 @dataclass
 class ProtoDependency:
@@ -113,8 +111,8 @@ class CellContext(Protocol):
 
     name: str
     caller: Caller
-    cell_dir: Path
-    home: Path
+    cell_dir: InternalPath
+    home: InternalPath
     loggers: Loggers
 
     def get_env_filter(
@@ -131,25 +129,13 @@ class CellContext(Protocol):
         properly rather than depending on data from places in the user's environment
         which desmata does not control.
         """
-        pass
+        raise NotImplementedError()
 
-    def internalize(
+    def internalize_ids_hashes(
         self, 
         *, 
         proto_dep: ProtoDependency,
-        id_getter: IdGetter
-    ) -> InternalPath:
-        """
-        Given
-        """
-        pass
-
-    def hash_dep(
-        self, 
-        *, 
-        internal_path: InternalPath
-    ) -> DependencyHash:
-        """
-        Given
-        """
-        pass
+        id_getter: IdGetter,
+        path_hasher: PathHasher,
+    ) -> tuple[InternalPath, InternalPath]:
+        raise NotImplementedError()

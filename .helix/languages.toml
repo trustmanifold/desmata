@@ -3,7 +3,8 @@ name = "python"
 language-servers = ["ruff", "pyright"]
 
 [language.formatter]
-command = "ruff format"
+command = "ruff"
+args = ["format"]
 
 [language-server]
 [language-server.pyright]

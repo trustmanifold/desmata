@@ -9,8 +9,8 @@ SpecificCell = TypeVar("SpecificCell", bound=Cell)
 
 @runtime_checkable
 class CellFactory(Protocol):
-    def get(CellType: type[SpecificCell]) -> SpecificCell:
-        pass
+    def get(self, CellType: type[SpecificCell]) -> SpecificCell:
+        raise NotImplementedError()
 
 
 class Hasher(Protocol):
