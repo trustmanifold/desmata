@@ -1,5 +1,18 @@
 {
   "nodes": {
+    "claude-code-tarball": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1742092277,
+        "narHash": "sha256-N0ZJ+DxjT4Xtmd+zE/AXJTaj8c+RnR4umepgWUTh2XE=",
+        "type": "tarball",
+        "url": "https://registry.npmjs.org/@anthropic-ai/claude-code/-/claude-code-0.2.45.tgz"
+      },
+      "original": {
+        "type": "tarball",
+        "url": "https://registry.npmjs.org/@anthropic-ai/claude-code/-/claude-code-0.2.45.tgz"
+      }
+    },
     "flake-utils": {
       "inputs": {
         "systems": "systems"
@@ -99,6 +112,7 @@
     },
     "root": {
       "inputs": {
+        "claude-code-tarball": "claude-code-tarball",
         "flake-utils": "flake-utils",
         "nixpkgs": "nixpkgs",
         "poetry2nix": "poetry2nix"
