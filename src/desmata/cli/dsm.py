@@ -32,7 +32,11 @@ from desmata.inspect import (
 )
 from desmata.log import CliLoggers
 from desmata.nix import Nix
-from desmata.provenance import closure_provenance
+from desmata.provenance import (
+    closure_provenance,
+    derivation_root,
+    save_derivations,
+)
 
 app = typer.Typer()
 
@@ -268,6 +272,7 @@ class InspectView(str, Enum):
     nix = "nix"
     ipfs = "ipfs"
     provenance = "provenance"
+    drv = "drv"
 
 
 def _short(store_path: str) -> str:
@@ -357,6 +362,62 @@ def _render_provenance(records) -> None:
         typer.echo(f"    {biggest.trustix_value().decode()}")
 
 
+def _render_drv(graph, root: str, depth: int) -> None:
+    """Print the tool's derivation (build-recipe) graph from the root .drv,
+    expanded to ``depth`` levels; deeper/already-shown subtrees collapse to a
+    derivation count."""
+    sources: set[str] = set()
+    for di in graph.values():
+        sources.update(di.input_srcs)
+    typer.echo(f"  {len(graph)} derivations, {len(sources)} distinct sources")
+
+    reach: dict[str, int] = {}
+
+    def subtree(p: str) -> int:
+        if p not in reach:
+            seen: set[str] = set()
+            stack = [p]
+            while stack:
+                x = stack.pop()
+                if x in seen:
+                    continue
+                seen.add(x)
+                di = graph.get(x)
+                if di:
+                    stack.extend(di.input_drvs)
+            reach[p] = len(seen)
+        return reach[p]
+
+    def name_of(p: str) -> str:
+        di = graph.get(p)
+        return di.name if di else _short(p)
+
+    shown: set[str] = set()
+
+    def walk(p: str, prefix: str, dleft: int) -> None:
+        di = graph.get(p)
+        kids = list(di.input_drvs) if di else []
+        for i, k in enumerate(kids):
+            last = i == len(kids) - 1
+            branch = "└─ " if last else "├─ "
+            kd = graph.get(k)
+            has_kids = bool(kd and kd.input_drvs)
+            if not has_kids:
+                typer.echo(f"{prefix}{branch}{name_of(k)}")
+            elif k in shown:
+                typer.echo(f"{prefix}{branch}{name_of(k)}  [{subtree(k)} drvs, shown above]")
+            elif dleft <= 0:
+                typer.echo(f"{prefix}{branch}{name_of(k)}  [{subtree(k)} drvs]")
+            else:
+                shown.add(k)
+                typer.echo(f"{prefix}{branch}{name_of(k)}")
+                walk(k, prefix + ("   " if last else "│  "), dleft - 1)
+
+    rootdi = graph[root]
+    typer.echo(f"  {rootdi.name}  ({rootdi.system})")
+    walk(root, "  ", depth)
+
+
 @app.command()
 def inspect(
     cell: str = typer.Argument(..., help="cell name, e.g. 'builtins'"),
@@ -365,8 +426,8 @@ def inspect(
     ),
     view: InspectView = typer.Argument(
         ...,
-        help="nix = store-path graph; ipfs = merkle DAG of blocks; "
-        "provenance = Trustix-shaped narinfo per store path",
+        help="nix = runtime store-path graph; ipfs = merkle DAG of blocks; "
+        "provenance = Trustix narinfo per store path; drv = build-recipe graph",
     ),
     depth: int = typer.Option(
         2, "--depth", help="ipfs view: directory levels to expand per store path"
@@ -391,7 +452,8 @@ def inspect(
 
     loggers = CliLoggers(verbose=verbose)
     with _quieted(verbose):
-        built = cell_factory(loggers, root=home).get(CellType)
+        factory = cell_factory(loggers, root=home)
+        built = factory.get(CellType)
         nix = Nix(cwd=Path.cwd(), log=loggers.proc)
         dep = find_tool(built, tool)
         if dep is None:
@@ -403,6 +465,13 @@ def inspect(
             result = inspect_tool_nix(nix, tool, dep)
         elif view is InspectView.provenance:
             result = closure_provenance(nix, dep)
+        elif view is InspectView.drv:
+            # the derivation closure is evaluated from the cell's own flake
+            flake_nix = Nix(cwd=Path(built.context.cell_dir), log=loggers.proc)
+            graph = flake_nix.derivation_closure(f".#{tool}")
+            drv_root = derivation_root(graph, str(dep.root))
+            if drv_root is not None:
+                save_derivations(factory.userspace, drv_root, graph)
         else:
             with tempfile.TemporaryDirectory() as scratch:
                 files = DesmataFiles.sandbox(Path(scratch), log=loggers)
@@ -424,6 +493,13 @@ def inspect(
         typer.echo(f"Cell '{cell}', tool '{tool}' — provenance "
                    "(Trustix nix protocol, by store path):")
         _render_provenance(result)
+    elif view is InspectView.drv:
+        typer.echo(f"Cell '{cell}', tool '{tool}' — derivation graph "
+                   "(build closure):")
+        if drv_root is None:
+            typer.echo("  (could not locate the root derivation for this tool)")
+        else:
+            _render_drv(graph, drv_root, depth)
     else:
         typer.echo(f"Cell '{cell}', tool '{tool}' — ipfs merkle DAG (by store path):")
         _render_ipfs_dag(result)

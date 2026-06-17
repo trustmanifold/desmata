@@ -15,6 +15,19 @@ class NixDependencyTree:
     info: NixPathInfo
     immediate_dependencies: list['NixDependencyTree']
 
+
+@dataclass
+class DerivationInfo:
+    """One node of a derivation (build-recipe) closure — structure only. The
+    heavy ``env``/``args``/``builder`` are dropped because the ``drv_path``
+    already content-addresses them; the .drv file itself is the full recipe."""
+    drv_path: str
+    name: str
+    system: str
+    outputs: dict[str, str]        # output name -> output store path
+    input_drvs: tuple[str, ...]    # .drv paths this derivation is built from
+    input_srcs: tuple[str, ...]    # content-addressed source store paths
+
 class Nix(Tool):
     _version: MajorMinorPatch | None = None
     _flakes_enabled: bool | None = None
@@ -96,6 +109,30 @@ class Nix(Tool):
         args += ["--option", "require-sigs", "false", "--import"]
         out = self._store.run_from_file(*args, src=src)
         return [line.strip() for line in out.splitlines() if line.strip()]
+
+    def derivation_closure(self, installable: str) -> dict[str, "DerivationInfo"]:
+        """The full derivation (build-recipe) closure of ``installable`` (e.g.
+        ``.#ipfs``), as a graph keyed by .drv path.
+
+        This is the *build* closure -- recipes + sources, the thing needed to
+        rebuild and to verify by re-build -- as opposed to the (much smaller)
+        runtime closure of references. Evaluates/instantiates the flake, so it
+        works even when the .drv has been garbage-collected."""
+        raw = json.loads(self("derivation", "show", "-r", installable))
+        graph: dict[str, DerivationInfo] = {}
+        for drv_path, d in raw.items():
+            graph[drv_path] = DerivationInfo(
+                drv_path=drv_path,
+                name=d.get("name", ""),
+                system=d.get("system", ""),
+                outputs={
+                    name: out.get("path", "")
+                    for name, out in d.get("outputs", {}).items()
+                },
+                input_drvs=tuple(d.get("inputDrvs", {}).keys()),
+                input_srcs=tuple(d.get("inputSrcs", [])),
+            )
+        return graph
 
     def get_nar_sha256_hex(self, path: Path) -> str:
         raise NotImplementedError()

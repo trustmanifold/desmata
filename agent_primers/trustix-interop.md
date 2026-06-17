@@ -158,3 +158,13 @@ references, deriver)` per path. Build that capture once and all three are served
 - **Granularity of attestation.** Per store path (Trustix's unit) vs per cell vs
   per derivation-output. Per-store-path matches Trustix and the dedup model; cell-
   level attestations can be a composite over those.
+- **deriver ≠ local instantiation.** The `deriver` in narinfo (recorded when a
+  path is substituted from a cache, e.g. Hydra's drv) can differ from the .drv
+  you get by instantiating the same attr locally — two different drvs yield the
+  same output path because an output path depends on its inputs' *resolved
+  outputs*, not their drv identities. Observed: kubo's narinfo deriver
+  `0whnvyr…` vs local `nix derivation show .#ipfs` root `v6xw5z…`, both →
+  `bilkygay…-kubo`. Trustix keys on the **output store path**, which is robust to
+  this; but the *derivation graph* we capture is whoever instantiated it, so
+  record which (cache vs local) and don't assume the deriver equals the captured
+  root drv.

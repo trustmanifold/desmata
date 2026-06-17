@@ -23,7 +23,7 @@ from pathlib import Path
 from desmata.interface import Dependency
 from desmata.lower_protocols import UserspaceFiles
 from desmata.messages import NixPathInfo
-from desmata.nix import Nix
+from desmata.nix import DerivationInfo, Nix
 
 
 @dataclass(frozen=True)
@@ -181,3 +181,67 @@ def load(files: UserspaceFiles) -> dict[str, NarInfo]:
         record = NarInfo.from_dict(json.loads(path.read_text()))
         out[record.path] = record
     return out
+
+
+# --- derivation (build-recipe) graphs --------------------------------------
+# The build closure behind an output: the .drv graph + sources needed to rebuild
+# (and so to verify by rebuild, and to rebuild offline / on another arch). Stored
+# as one graph file per root derivation; the heavy env/args are already dropped
+# (the .drv path content-addresses them).
+
+def _deriv_dir(files: UserspaceFiles) -> Path:
+    return files.data / "derivations"
+
+
+def save_derivations(
+    files: UserspaceFiles, root_drv: str, graph: dict[str, DerivationInfo]
+) -> None:
+    directory = _deriv_dir(files)
+    directory.mkdir(parents=True, exist_ok=True)
+    obj = {
+        "root": root_drv,
+        "derivations": {
+            p: {
+                "name": di.name,
+                "system": di.system,
+                "outputs": di.outputs,
+                "inputDrvs": list(di.input_drvs),
+                "inputSrcs": list(di.input_srcs),
+            }
+            for p, di in graph.items()
+        },
+    }
+    path = directory / f"{_ident(root_drv)}.json"
+    path.write_text(json.dumps(obj, separators=(",", ":")))
+
+
+def load_derivations(
+    files: UserspaceFiles,
+) -> dict[str, dict[str, DerivationInfo]]:
+    """Persisted derivation graphs, keyed by root .drv path."""
+    directory = _deriv_dir(files)
+    if not directory.exists():
+        return {}
+    result: dict[str, dict[str, DerivationInfo]] = {}
+    for path in directory.glob("*.json"):
+        obj = json.loads(path.read_text())
+        graph = {
+            p: DerivationInfo(
+                drv_path=p,
+                name=v["name"],
+                system=v["system"],
+                outputs=v["outputs"],
+                input_drvs=tuple(v["inputDrvs"]),
+                input_srcs=tuple(v["inputSrcs"]),
+            )
+            for p, v in obj["derivations"].items()
+        }
+        result[obj["root"]] = graph
+    return result
+
+
+def derivation_root(graph: dict[str, DerivationInfo], output_path: str) -> str | None:
+    """The .drv in ``graph`` whose output is ``output_path`` (the closure root)."""
+    return next(
+        (p for p, di in graph.items() if output_path in di.outputs.values()), None
+    )

@@ -17,8 +17,17 @@ from desmata.builtins.cell import DesmataBuiltins
 from desmata.fs import DesmataFiles
 from desmata.lower_protocols import UserspaceFiles
 from desmata.messages import NixPathInfo
-from desmata.nix import Nix
-from desmata.provenance import Attestation, NarInfo, closure_provenance, load, save
+from desmata.nix import DerivationInfo, Nix
+from desmata.provenance import (
+    Attestation,
+    NarInfo,
+    closure_provenance,
+    derivation_root,
+    load,
+    load_derivations,
+    save,
+    save_derivations,
+)
 from desmata.log import TestLoggers
 
 
@@ -129,3 +138,40 @@ def test_build_persists_provenance(
     kubo = next((r for p, r in stored.items() if "kubo" in p), None)
     assert kubo is not None
     assert kubo.deriver and kubo.deriver.endswith(".drv")
+
+
+def test_derivation_closure_is_the_build_graph():
+    import desmata.builtins.cell as bc
+
+    nix = Nix(cwd=Path(bc.__file__).parent, log=TestLoggers().proc)
+    graph = nix.derivation_closure(".#ipfs")
+
+    # the build closure dwarfs the 4-path runtime closure
+    assert len(graph) > 100
+    # it includes the shared toolchain (go) — the dedup target across tools
+    assert any("go-" in di.name for di in graph.values())
+    # and content-addressed sources
+    srcs = {s for di in graph.values() for s in di.input_srcs}
+    assert srcs
+    # the root derivation is the one that outputs the kubo store path
+    kubo_root = next(p for p, di in graph.items() if di.name == "kubo-0.28.0")
+    assert "out" in graph[kubo_root].outputs
+
+
+def test_derivations_save_load_round_trip(tmp_path: Path):
+    files = DesmataFiles.sandbox(tmp_path, log=TestLoggers())
+    graph = {
+        "/nix/store/a.drv": DerivationInfo(
+            drv_path="/nix/store/a.drv",
+            name="a",
+            system="aarch64-darwin",
+            outputs={"out": "/nix/store/aaa-a"},
+            input_drvs=("/nix/store/b.drv",),
+            input_srcs=("/nix/store/src",),
+        )
+    }
+    save_derivations(files, "/nix/store/a.drv", graph)
+    loaded = load_derivations(files)
+    assert loaded["/nix/store/a.drv"] == graph
+    # the root is locatable by its output store path
+    assert derivation_root(graph, "/nix/store/aaa-a") == "/nix/store/a.drv"
