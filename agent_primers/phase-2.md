@@ -48,6 +48,15 @@ references, deriver)` per path*. Build that capture + the per-path manifest once
 and peer transport, dedup, offline rebuild, and Trustix provenance are all served.
 Dedup (already built) is what makes capturing the large build closures tractable.
 
+**Design constraint on thread 4 (don't foreclose the future).** Make the
+provenance record a *general computation attestation*
+`(inputs, recipe, runner, determinism-policy, outputs, signer)`; emit the Trustix
+nix `KeyValuePair` as a **projection** of it, rather than making the core schema
+nix-shaped. A nix build is one instance of a verifiable computation; desmata aims
+to eventually attest runtime computations (e.g. running BLAST on reads) the same
+way. Cheap to get right now, painful to retrofit. See
+[verifiable-computation.md](./verifiable-computation.md).
+
 ## Deferred (explicitly NOT Phase 2)
 
 The gossip / signed Merkle-log / M-of-N consensus *trust layer* itself
