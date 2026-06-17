@@ -1,34 +1,30 @@
-"""Moving a built dependency between peers by hash, offline.
+"""Moving a built dependency between peers by hash, offline — per store path.
 
 This is the heart of desmata's partition-tolerance bet: a peer who already has a
 nix store closure can hand it to a peer who lacks it, with no rebuild and no
-internet, because everything is addressed by hash. The transport is a
-"sneakernet" CAR round-trip:
+internet, because everything is addressed by hash.
 
-    closure --(nix-store --export)--> NAR --(ipfs add)--> repo A
-            --(ipfs dag export)--> CAR  ===handed to B===  CAR
-            --(ipfs dag import)--> repo B --(ipfs get)--> NAR
-            --(nix-store --import)--> reconstructed closure
+Transport is **per store path**, not one opaque blob. Each path in the closure is
+exported as its own NAR (`nix-store --export <path>`, which is byte-deterministic
+for a given exporter) and added to IPFS, so a path shared by two closures gets the
+*same* CID and is stored/transferred once — the dedup the inspect/dedup tooling
+measures, now preserved over the wire. A small IPLD **manifest** links each path
+to its NAR CID; exporting the manifest yields a single CAR containing the manifest
+plus every (deduplicated) NAR sub-DAG — the "sneakernet" artifact handed to peer B.
 
-The two halves are deliberately split so the producer (peer A) and consumer
-(peer B) can run on different machines at different times. The only thing that
-crosses between them is the CAR file -- itself content-addressed by ``cid``.
+Import replays the manifest in dependency order (leaves first), importing each
+path's NAR into the nix store (a single-path import requires its references to be
+present already, hence the order).
 
 These functions are what a future ``dsm bootstrap --source peer`` will call; for
 now they are exercised by the partition spike test.
 
-KNOWN GAP — deduplication. This transport ships a whole closure as one opaque
-NAR blob (`nix-store --export`), then `ipfs add`s it. IPFS's default fixed-size
-chunker cuts at byte offsets, so a dependency shared by two closures lands on
-*misaligned* block boundaries in each NAR and is transferred/stored once per
-closure, not once total. The per-store-path / per-file storage model that
-`desmata.inspect` (and `test_dedup.py`) exercise *does* dedup shared content for
-free (identical bytes -> identical CID). To make the transport inherit that,
-move closures **per store path** -- a CAR built from individual `ipfs add`s plus
-a small IPLD manifest whose links point to each path's CID -- so a shared
-dependency becomes a shared sub-DAG. That manifest also lines up with how cells
-already internalize dependencies per path. Verify any fix with `dsm inspect
-<cell> <tool> ipfs`: a path shared across two tools must show the same CID.
+Residual caveat: `nix-store --export`'s envelope includes the recorded `deriver`,
+so the per-path CID is deterministic per *exporter* (perfect for "adding a tool to
+a cell grows it modestly") but two independent exporters that recorded different
+derivers for the same output would produce different CIDs. Stripping the deriver
+(or CA-derivations) would make dedup machine-independent; see
+agent_primers/trustix-interop.md §8.
 """
 
 from pathlib import Path
@@ -37,41 +33,68 @@ from desmata.builtins.cell import Tools
 from desmata.nix import Nix
 
 
+def _topo_order(nix: Nix, root_path: str) -> list[str]:
+    """The closure of ``root_path``, leaves first — the order single-path imports
+    must follow (a path's references must already be in the store). Deterministic
+    (ties broken by path), so the same closure yields the same manifest."""
+    infos = nix.closure_info(root_path)
+    members = {str(i.path) for i in infos}
+    deps = {
+        str(i.path): {str(r) for r in i.references if str(r) != str(i.path)} & members
+        for i in infos
+    }
+    ordered: list[str] = []
+    done: set[str] = set()
+    while len(ordered) < len(members):
+        ready = sorted(p for p in members if p not in done and deps[p] <= done)
+        if not ready:  # a reference cycle (rare in the store) — emit the rest
+            ready = sorted(p for p in members if p not in done)
+        ordered.extend(ready)
+        done.update(ready)
+    return ordered
+
+
 def export_closure_to_car(
     nix: Nix, ipfs: Tools.IPFS, path: str, *, workdir: Path
 ) -> tuple[str, Path]:
-    """Peer A: package ``path``'s whole closure into a CAR file.
+    """Peer A: package ``path``'s closure as per-path NARs under an IPLD
+    manifest, exported to a single CAR. Returns ``(manifest_cid, car_path)``.
 
-    Returns the ``cid`` addressing the closure and the path to the CAR file
-    (written under ``workdir``). The cid is the same wherever this runs -- it is
-    how peer B asks for exactly these bytes.
+    The manifest's ``paths`` are in dependency order; each links to its NAR's CID,
+    so a store path shared with another closure reuses that CID (dedup).
     """
-    nar = workdir / "closure.nar"
-    nix.export_closure(nix.closure_paths(path), dest=nar)
+    entries: list[dict] = []
+    for index, store_path in enumerate(_topo_order(nix, path)):
+        nar = workdir / f"{index}.nar"
+        nix.export_closure([store_path], dest=nar)  # single-path NAR
+        nar_cid = ipfs.add(nar)
+        entries.append({"path": store_path, "nar": {"/": nar_cid}})
 
-    cid = ipfs.add(nar)
-    car = workdir / f"{cid}.car"
-    ipfs.dag_export(cid, dest=car)
-    return cid, car
+    manifest_cid = ipfs.dag_put({"root": path, "paths": entries})
+    car = workdir / f"{manifest_cid}.car"
+    ipfs.dag_export(manifest_cid, dest=car)
+    return manifest_cid, car
 
 
 def import_car_to_store(
     nix: Nix,
     ipfs: Tools.IPFS,
     car: Path,
-    cid: str,
+    manifest_cid: str,
     *,
     workdir: Path,
     store: Path | None = None,
 ) -> list[str]:
-    """Peer B: reconstruct a closure from a CAR file received from peer A.
-
-    Loads the CAR into B's ipfs repo, recovers the NAR addressed by ``cid``, and
-    imports it into the nix store (``store`` selects an alternate local store
-    root). Returns the store paths reconstructed.
+    """Peer B: reconstruct a closure from a CAR and its manifest, importing each
+    path's NAR in manifest (dependency) order into the nix store (``store``
+    selects an alternate local store root). Returns the store paths reconstructed.
     """
     ipfs.dag_import(car)
+    manifest = ipfs.dag_get(manifest_cid)
 
-    nar = workdir / "recovered.nar"
-    ipfs.get(cid, nar)
-    return nix.import_closure(nar, store=store)
+    imported: list[str] = []
+    for index, entry in enumerate(manifest["paths"]):
+        nar = workdir / f"{index}.nar"
+        ipfs.get(entry["nar"]["/"], nar)
+        imported.extend(nix.import_closure(nar, store=store))
+    return imported

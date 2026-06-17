@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 from desmata.cell_utils import get_nix
@@ -110,6 +111,21 @@ class Tools:
         def dag_import(self, car: Path) -> None:
             """Load a CAR file's blocks into this repo."""
             self("dag", "import", str(car.resolve()))
+
+        def dag_put(self, obj: dict) -> str:
+            """Store ``obj`` as an IPLD node (dag-cbor) and return its CID. Links
+            are expressed as ``{"/": "<cid>"}``; ``dag_export`` of the result
+            follows them, so a manifest that links per-path NARs exports them
+            all in one CAR."""
+            return self(
+                "dag", "put",
+                "--input-codec", "dag-json", "--store-codec", "dag-cbor",
+                stdin=json.dumps(obj),
+            ).strip()
+
+        def dag_get(self, cid: str) -> dict:
+            """Read an IPLD node back as dag-json (links as ``{"/": cid}``)."""
+            return json.loads(self("dag", "get", cid))
 
         def get(self, cid: str, dest: Path, *, offline: bool = True) -> None:
             """Materialize ``cid`` from this repo's blocks into ``dest``."""

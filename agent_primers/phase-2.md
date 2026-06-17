@@ -63,6 +63,11 @@ The gossip / signed Merkle-log / M-of-N consensus *trust layer* itself
 (`trustix-proto`'s log + `Decide`). Phase 2 only ensures our captured records can
 *become* valid Trustix log entries and our peer keys can act as Trustix signers —
 so that layer (ours or an external Trustix) drops in later without re-importing.
+A concrete candidate for that deferred layer — richer than Trustix's flat M-of-N,
+because it scores transitive weighted trust — is **Semantic Paint**; see
+[semantic-paint-trust-layer.md](./semantic-paint-trust-layer.md). It changes
+nothing in Phase 2 except reinforcing the "keep `Attestation` general/projectable"
+constraint already imposed by [verifiable-computation.md](./verifiable-computation.md).
 
 ## Likely ordering (refine in the real plan)
 

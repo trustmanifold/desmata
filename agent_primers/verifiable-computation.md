@@ -82,6 +82,11 @@ one (machine recompute) masquerade as the expensive one (human peer review).
   world), CWL/WDL.
 - **Unison** (already cited in the README) — content-addressed code; the
   computation-identity-by-hash angle.
+- **Semantic Paint** — a web-of-trust gossip layer whose trust metric (Appleseed)
+  generalizes Trustix's flat M-of-N to transitive weighted trust, and which keeps
+  repeatability-trust and validity-trust in separate "palettes" (§4's boundary,
+  enforced structurally). A candidate consumer of these attestations; see
+  [semantic-paint-trust-layer.md](./semantic-paint-trust-layer.md).
 
 ## 6. The one alteration for now
 

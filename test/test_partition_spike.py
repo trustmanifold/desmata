@@ -1,16 +1,16 @@
-"""Phase 1 partition spike: a nix closure moves between two ipfs peers by hash,
-offline, and is reconstructed in a store that didn't have it.
+"""Phase 2 partition transport: a nix closure moves between two ipfs peers by
+hash, offline, per store path, and reconstructs in a store that didn't have it.
 
 This is the single most important assumption behind desmata's partition
-tolerance. We prove the *data path* on one machine: peer A packages a closure
-into a CAR file, peer B (a separate ipfs repo and a separate, initially-empty nix
-store) reconstructs it from that CAR with no network. Cutting the real internet
-and forcing B to fetch from A over a socket is a later, container-based phase;
-here we prove the bytes flow by content address and `nix-store --import`
-reconstructs them.
+tolerance. We prove the *data path* on one machine: peer A packages a closure as
+per-path NARs under an IPLD manifest (one CAR), peer B (a separate ipfs repo and a
+separate, initially-empty nix store) reconstructs it from that CAR with no
+network. Cutting the real internet and forcing B to fetch from A over a socket is
+a later, container-based phase.
 
-Peer A is the builtin cell's ipfs (session fixture); peer B is a second
-Tools.IPFS on an independent home, sharing only the kubo *binary*.
+Crucially the transport is per store path, so a dependency shared by two closures
+exports to the *same* NAR CID — dedup is preserved over the wire (the whole point
+of thread 3).
 """
 
 from pathlib import Path
@@ -47,9 +47,9 @@ def test_closure_round_trips_between_peers_offline(
     b_work = tmp_path / "B"
     b_work.mkdir()
 
-    # peer A packages the closure into a content-addressed CAR file
-    cid, car = export_closure_to_car(nix, ipfs_a, path, workdir=a_work)
-    assert cid.startswith("Qm")
+    # peer A packages the closure into a content-addressed CAR (IPLD manifest)
+    manifest_cid, car = export_closure_to_car(nix, ipfs_a, path, workdir=a_work)
+    assert manifest_cid.startswith("bafy")  # CIDv1 dag-cbor manifest
     assert car.exists()
 
     # peer B's store genuinely does not have the path yet
@@ -59,14 +59,44 @@ def test_closure_round_trips_between_peers_offline(
 
     # peer B reconstructs it from the CAR alone -- no rebuild, no network
     imported = import_car_to_store(
-        nix, ipfs_b, car, cid, workdir=b_work, store=bstore
+        nix, ipfs_b, car, manifest_cid, workdir=b_work, store=bstore
     )
 
     # the reconstructed identity matches, and the path now exists in B's store
     assert path in imported
     assert (bstore / rel).exists()
 
-    # the bytes survived the round trip exactly (CID integrity across two repos)
-    assert (a_work / "closure.nar").read_bytes() == (
-        b_work / "recovered.nar"
-    ).read_bytes()
+
+def test_transport_preserves_cross_closure_dedup(
+    builtins: DesmataBuiltins, tmp_path: Path
+):
+    ipfs_a = builtins.ipfs
+    ipfs_a.init()
+    nix = Nix(cwd=tmp_path, log=TestLoggers().proc)
+
+    kubo = str(builtins.closure.ipfs.root)
+    tz = next(
+        str(i.path) for i in nix.closure_info(kubo) if "tzdata" in str(i.path)
+    )
+
+    full = tmp_path / "full"
+    full.mkdir()
+    alone = tmp_path / "alone"
+    alone.mkdir()
+
+    full_cid, _ = export_closure_to_car(nix, ipfs_a, kubo, workdir=full)
+    tz_cid, _ = export_closure_to_car(nix, ipfs_a, tz, workdir=alone)
+
+    full_manifest = ipfs_a.dag_get(full_cid)
+    tz_manifest = ipfs_a.dag_get(tz_cid)
+    cid_in_full = next(
+        e["nar"]["/"] for e in full_manifest["paths"] if e["path"] == tz
+    )
+    cid_alone = next(
+        e["nar"]["/"] for e in tz_manifest["paths"] if e["path"] == tz
+    )
+
+    # the shared dependency (tzdata) exports to the same NAR CID whether it
+    # travels inside kubo's closure or on its own — so a peer that already has it
+    # stores/transfers it once
+    assert cid_in_full == cid_alone
