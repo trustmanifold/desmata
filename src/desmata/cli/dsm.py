@@ -32,6 +32,7 @@ from desmata.inspect import (
 )
 from desmata.log import CliLoggers
 from desmata.nix import Nix
+from desmata.provenance import closure_provenance
 
 app = typer.Typer()
 
@@ -266,6 +267,7 @@ def clean(
 class InspectView(str, Enum):
     nix = "nix"
     ipfs = "ipfs"
+    provenance = "provenance"
 
 
 def _short(store_path: str) -> str:
@@ -335,6 +337,26 @@ def _render_ipfs_dag(tool) -> None:
     typer.echo("  Compare with `dsm inspect <cell> <other-tool> ipfs`.")
 
 
+def _render_provenance(records) -> None:
+    """Print the tool's per-store-path provenance (Trustix nix protocol): each
+    record is a (Key=store path, Value={path,narHash,narSize,references}) entry,
+    plus desmata's recipe link (deriver)."""
+    for r in sorted(records, key=lambda r: r.nar_size, reverse=True):
+        typer.echo("")
+        typer.echo(f"  {_short(r.path)}")
+        typer.echo(f"      narHash : {r.nar_hash}")
+        typer.echo(f"      narSize : {_human_size(r.nar_size)}")
+        typer.echo(f"      deriver : {_short(r.deriver) if r.deriver else '(none)'}")
+        typer.echo(f"      refs    : {len(r.references)}")
+    typer.echo("")
+    typer.echo(f"  {len(records)} store paths captured, each a Trustix nix entry")
+    typer.echo("  (Key = store path, Value = {path,narHash,narSize,references}).")
+    if records:
+        biggest = max(records, key=lambda r: r.nar_size)
+        typer.echo("  example Value:")
+        typer.echo(f"    {biggest.trustix_value().decode()}")
+
+
 @app.command()
 def inspect(
     cell: str = typer.Argument(..., help="cell name, e.g. 'builtins'"),
@@ -342,7 +364,9 @@ def inspect(
         ..., help="a managed tool in the cell, e.g. 'ipfs' (see the cell's tools)"
     ),
     view: InspectView = typer.Argument(
-        ..., help="nix = store-path graph; ipfs = merkle DAG of blocks"
+        ...,
+        help="nix = store-path graph; ipfs = merkle DAG of blocks; "
+        "provenance = Trustix-shaped narinfo per store path",
     ),
     depth: int = typer.Option(
         2, "--depth", help="ipfs view: directory levels to expand per store path"
@@ -377,6 +401,8 @@ def inspect(
 
         if view is InspectView.nix:
             result = inspect_tool_nix(nix, tool, dep)
+        elif view is InspectView.provenance:
+            result = closure_provenance(nix, dep)
         else:
             with tempfile.TemporaryDirectory() as scratch:
                 files = DesmataFiles.sandbox(Path(scratch), log=loggers)
@@ -394,6 +420,10 @@ def inspect(
         typer.echo(f"Cell '{cell}', tool '{tool}' — nix store-path graph "
                    f"({len(result.sizes)} paths, {_human_size(result.total_size)}):")
         _render_nix_graph(result)
+    elif view is InspectView.provenance:
+        typer.echo(f"Cell '{cell}', tool '{tool}' — provenance "
+                   "(Trustix nix protocol, by store path):")
+        _render_provenance(result)
     else:
         typer.echo(f"Cell '{cell}', tool '{tool}' — ipfs merkle DAG (by store path):")
         _render_ipfs_dag(result)

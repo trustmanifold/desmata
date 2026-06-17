@@ -8,9 +8,11 @@ from pathlib import Path
 
 from sqlalchemy import Engine
 
+from desmata import provenance
 from desmata.builtins.cell import Deps as DesmataBuiltinDeps
 from desmata.builtins.cell import DesmataBuiltins
 from desmata.builtins.cell import Tools as DesmataBuiltinTools
+from desmata.cell_utils import get_nix
 from desmata.exceptions import BadCellClassException
 from desmata.fs import create_hard_links
 from desmata.higher_protocols import CellFactory
@@ -314,5 +316,13 @@ class DefaultCellFactory(CellFactory):
             deps[attr_name] = dep
 
         closure = ClosureType(local_name=name, **deps)
+
+        # capture build provenance: a Trustix-projectable narinfo per store path
+        # in each managed dependency's closure (see provenance.py / phase-2.md).
+        nix = get_nix(context)
+        records: list = []
+        for dep in deps.values():
+            records.extend(provenance.closure_provenance(nix, dep))
+        provenance.save(self.userspace, records)
 
         return CellType(closure, context)

@@ -16,9 +16,12 @@ changing the core shape.
 """
 
 import json
+from collections.abc import Iterable
 from dataclasses import dataclass
+from pathlib import Path
 
 from desmata.interface import Dependency
+from desmata.lower_protocols import UserspaceFiles
 from desmata.messages import NixPathInfo
 from desmata.nix import Nix
 
@@ -80,6 +83,27 @@ class NarInfo:
             deriver=str(info.deriver) if info.deriver else None,
         )
 
+    def to_dict(self) -> dict:
+        """desmata's own (richer-than-Trustix) persisted form: the Trustix Value
+        fields plus the ``deriver`` recipe link."""
+        return {
+            "path": self.path,
+            "narHash": self.nar_hash,
+            "narSize": self.nar_size,
+            "references": list(self.references),
+            "deriver": self.deriver,
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "NarInfo":
+        return cls(
+            path=d["path"],
+            nar_hash=d["narHash"],
+            nar_size=d["narSize"],
+            references=tuple(d["references"]),
+            deriver=d.get("deriver"),
+        )
+
     def to_attestation(self) -> Attestation:
         """Lift this nix record into the general attestation shape — making
         explicit that a build is one kind of verifiable computation."""
@@ -122,3 +146,38 @@ def closure_provenance(nix: Nix, dep: Dependency) -> list[NarInfo]:
     """One :class:`NarInfo` per store path in a tool's closure — the capture unit
     that mirrors Trustix's ``submit-closure`` (a KV pair per requisite)."""
     return [NarInfo.from_path_info(info) for info in nix.closure_info(str(dep.root))]
+
+
+# --- persistence -----------------------------------------------------------
+# Records are keyed by store path (the Trustix Key) and written one file per
+# path, so the same store path captured by two tools/cells lands on one file --
+# dedup, like the block store. This is desmata's local provenance ledger; the
+# eventual trust layer projects it to Trustix entries via trustix_key/value.
+
+def _store_dir(files: UserspaceFiles) -> Path:
+    return files.data / "provenance"
+
+
+def _ident(store_path: str) -> str:
+    return store_path.replace("/nix/store/", "")
+
+
+def save(files: UserspaceFiles, records: Iterable[NarInfo]) -> None:
+    """Persist provenance records into the userspace, one file per store path."""
+    directory = _store_dir(files)
+    directory.mkdir(parents=True, exist_ok=True)
+    for record in records:
+        path = directory / f"{_ident(record.path)}.json"
+        path.write_text(json.dumps(record.to_dict(), separators=(",", ":")))
+
+
+def load(files: UserspaceFiles) -> dict[str, NarInfo]:
+    """All persisted provenance records, keyed by store path."""
+    directory = _store_dir(files)
+    if not directory.exists():
+        return {}
+    out: dict[str, NarInfo] = {}
+    for path in directory.glob("*.json"):
+        record = NarInfo.from_dict(json.loads(path.read_text()))
+        out[record.path] = record
+    return out

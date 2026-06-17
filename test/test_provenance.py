@@ -11,10 +11,14 @@ keeps the future runtime-provenance goal reachable
 import json
 from pathlib import Path
 
+from injector import Injector
+
 from desmata.builtins.cell import DesmataBuiltins
+from desmata.fs import DesmataFiles
+from desmata.lower_protocols import UserspaceFiles
 from desmata.messages import NixPathInfo
 from desmata.nix import Nix
-from desmata.provenance import Attestation, NarInfo, closure_provenance
+from desmata.provenance import Attestation, NarInfo, closure_provenance, load, save
 from desmata.log import TestLoggers
 
 
@@ -105,3 +109,23 @@ def test_closure_provenance_over_builtin_tool(builtins: DesmataBuiltins):
     assert list(kubo.references) == sorted(kubo.references)
     # kubo references its data deps
     assert any("tzdata" in r for r in kubo.references)
+
+
+def test_save_load_round_trip(tmp_path: Path):
+    files = DesmataFiles.sandbox(tmp_path, log=TestLoggers())
+    record = NarInfo.from_path_info(_sample_info())
+    save(files, [record])
+    loaded = load(files)
+    # keyed by store path, and survives the round trip (incl. deriver)
+    assert loaded[record.path] == record
+
+
+def test_build_persists_provenance(
+    builtins: DesmataBuiltins, session_components: Injector
+):
+    # building a cell captures provenance for its tools' closures
+    stored = load(session_components.get(UserspaceFiles))
+    assert len(stored) >= 4
+    kubo = next((r for p, r in stored.items() if "kubo" in p), None)
+    assert kubo is not None
+    assert kubo.deriver and kubo.deriver.endswith(".drv")
