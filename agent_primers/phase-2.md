@@ -22,6 +22,17 @@ showed *why* the storage model matters.
    (`bootstrap.py`, the `BootstrapSource.peer` → `NotImplementedError` seam) to
    `transport.py`, so a peer with no internet assembles a cell from another peer.
 
+   **Transport is two-tier** (resolves the chicken-and-egg: you can't receive ipfs
+   over ipfs). The *first* managed dependency (ipfs) travels over the **trusted
+   tools** — nix's own closure transport, over **ssh** between machines
+   (`nix copy --from ssh://…`) or a plain file copy on one
+   (`transport.acquire_closure_*`). ssh is therefore a **trusted bootstrap tool**
+   (added to `dsm check` alongside nix/git). Everything *after* ipfs rides the
+   content-addressed **ipfs** path (CAR/manifest, eventually bitswap) with dedup.
+   Provenance is identical either way — same NARs/store paths — so verify-by-rebuild
+   is unaffected. The single-machine acquire is tested in `test_bootstrap_peer.py`;
+   the ssh/LAN form is the container phase.
+
 2. **Per-store-path IPLD manifest transport (fixes dedup).** Phase 1 ships a
    closure as one opaque NAR blob, which defeats cross-tool dedup (see the KNOWN
    GAP note in `transport.py`). Replace it with per-store-path adds + a small IPLD

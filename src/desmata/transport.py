@@ -33,6 +33,41 @@ from desmata.builtins.cell import Tools
 from desmata.nix import Nix
 
 
+# --- bootstrap transport (trusted tools: ssh + nix; no ipfs) ----------------
+# The chicken-and-egg: to receive ipfs (the builtin managed dependency) from a
+# peer, a node would need ipfs already. So the *first* dependency travels over
+# the trusted tools instead -- nix's own closure transport, over ssh between
+# machines or as a plain file copy on one. Everything *after* ipfs rides the
+# content-addressed ipfs path below. See agent_primers/phase-2.md (two tiers).
+
+def acquire_closure_over_ssh(
+    nix: Nix, peer: str, path: str, *, into_store: Path | None = None
+) -> None:
+    """Pull ``path``'s closure from ``peer``'s nix store over ssh, using only the
+    trusted tools (nix delegates to ssh). ``peer`` is an ssh destination such as
+    ``user@host``; ``into_store`` targets an alternate local store root.
+
+    This is the production peer-bootstrap transport; on a single host it can't be
+    exercised without sshd/keys, so it's covered by the container/LAN phase while
+    ``acquire_closure_local`` covers the same mechanism here."""
+    args = ["copy", "--from", f"ssh://{peer}", "--no-check-sigs"]
+    if into_store is not None:
+        args += ["--to", str(into_store)]
+    args.append(path)
+    nix(*args)
+
+
+def acquire_closure_local(
+    nix: Nix, path: str, *, into_store: Path, workdir: Path
+) -> list[str]:
+    """Copy ``path``'s closure into ``into_store`` on the same machine, via
+    ``nix-store --export | --import`` -- the "just a file copy" / sneakernet form
+    of the bootstrap transport (no ipfs, no ssh). Returns the imported paths."""
+    nar = workdir / "bootstrap.nar"
+    nix.export_closure(nix.closure_paths(path), dest=nar)
+    return nix.import_closure(nar, store=into_store)
+
+
 def _topo_order(nix: Nix, root_path: str) -> list[str]:
     """The closure of ``root_path``, leaves first — the order single-path imports
     must follow (a path's references must already be in the store). Deterministic

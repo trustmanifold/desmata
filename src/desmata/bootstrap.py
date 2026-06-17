@@ -36,6 +36,7 @@ from desmata.git import Git
 from desmata.higher_protocols import CellFactory
 from desmata.lower_protocols import Loggers, UserspaceFiles
 from desmata.nix import Nix
+from desmata.ssh import Ssh
 
 
 # --- trusted-tool checks ---------------------------------------------------
@@ -58,6 +59,7 @@ def check_trusted_tools(loggers: Loggers) -> list[ToolCheck]:
     tools = [
         ("nix", Nix(cwd=Path.cwd(), log=log)),
         ("git", Git(log=log)),
+        ("ssh", Ssh(log=log)),
     ]
     for name, tool in tools:
         try:

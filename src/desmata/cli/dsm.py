@@ -44,6 +44,7 @@ app = typer.Typer()
 TOOL_PURPOSE = {
     "nix": "builds and pins desmata's managed dependencies",
     "git": "local repository operations",
+    "ssh": "moves managed dependencies between peers during bootstrap (with nix)",
 }
 
 

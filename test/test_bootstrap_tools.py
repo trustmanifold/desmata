@@ -15,6 +15,7 @@ from pathlib import Path
 
 from desmata.git import Git
 from desmata.nix import Nix
+from desmata.ssh import Ssh
 
 log = logging.getLogger("test.bootstrap")
 
@@ -63,6 +64,18 @@ def test_nix_meets_minimum_version():
     major, _minor, _patch = nix.version
     assert major >= 2
 
+
+# --- ssh -------------------------------------------------------------------
+
+def test_ssh_meets_minimum_version():
+    # ssh is the bootstrap transport (nix copy --from ssh://...): a peer who
+    # lacks ipfs receives it over the trusted tools, not over ipfs.
+    ssh = Ssh(log=log)
+    ssh.check()
+    assert ssh.version >= (7, 0, 0)
+
+
+# --- nix -------------------------------------------------------------------
 
 def test_nix_get_id_strips_the_store_prefix():
     # the contract desmata relies on: a /nix/store path maps to its bare id
