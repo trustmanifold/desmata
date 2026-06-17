@@ -2,6 +2,7 @@ import contextlib
 import os
 import sys
 import tempfile
+from enum import Enum
 from pathlib import Path
 from typing import Optional
 
@@ -18,8 +19,19 @@ from desmata.bootstrap import (
     list_cells,
     userspace,
 )
+from desmata.builtins.cell import Tools
+from desmata.cell_factory import BasicContext
 from desmata.cli.common import cli_logger
+from desmata.fs import DesmataFiles
+from desmata.inspect import (
+    cell_tools,
+    find_tool,
+    inspect_tool_ipfs,
+    inspect_tool_nix,
+    known_cells,
+)
 from desmata.log import CliLoggers
+from desmata.nix import Nix
 
 app = typer.Typer()
 
@@ -251,9 +263,149 @@ def clean(
     _report_removed(f"home directory for cell '{cell}'", [removed])
 
 
+class InspectView(str, Enum):
+    nix = "nix"
+    ipfs = "ipfs"
+
+
+def _short(store_path: str) -> str:
+    return store_path.replace("/nix/store/", "")
+
+
+def _short_cid(cid: str) -> str:
+    return cid if len(cid) <= 18 else f"{cid[:14]}…{cid[-3:]}"
+
+
+def _render_nix_graph(tool) -> None:
+    """Print the tool's nix closure as an indented store-path graph (each path
+    over the paths it references). Shared subtrees are shown once."""
+    typer.echo(f"  {tool.root_id}  {_human_size(tool.sizes.get(tool.root_id, 0))}")
+    seen: set[str] = set()
+
+    def walk(node_id: str, prefix: str) -> None:
+        children = tool.edges.get(node_id, [])
+        for i, child_id in enumerate(children):
+            last = i == len(children) - 1
+            branch = "└─ " if last else "├─ "
+            size = _human_size(tool.sizes.get(child_id, 0))
+            if child_id in seen:
+                typer.echo(f"{prefix}{branch}{child_id}  {size}  (shown above)")
+                continue
+            seen.add(child_id)
+            typer.echo(f"{prefix}{branch}{child_id}  {size}")
+            walk(child_id, prefix + ("   " if last else "│  "))
+
+    walk(tool.root_id, "  ")
+
+
+def _render_ipfs_dag(tool) -> None:
+    """Print the tool's closure as a merkle DAG: one tree per store path, dirs
+    expanded, files/cut-off dirs shown with their subtree block count."""
+
+    def annotate(node) -> str:
+        if node.kind == "file":
+            return f"  [{node.blocks} blocks]"
+        if node.truncated:
+            return f"  [{node.blocks} blocks below]"
+        return ""
+
+    def walk(children, prefix: str) -> None:
+        for i, ch in enumerate(children):
+            last = i == len(children) - 1
+            branch = "└─ " if last else "├─ "
+            size = f"  {_human_size(ch.size)}" if ch.size else ""
+            slash = "/" if ch.kind == "dir" else ""
+            typer.echo(f"{prefix}{branch}{ch.name}{slash}{size}  "
+                       f"{_short_cid(ch.cid)}{annotate(ch)}")
+            if ch.children:
+                walk(ch.children, prefix + ("   " if last else "│  "))
+
+    for root in tool.roots:
+        typer.echo("")
+        typer.echo(f"  {root.name}  {_human_size(root.size)}  "
+                   f"{_short_cid(root.cid)}  [{root.blocks} blocks]")
+        walk(root.children, "  ")
+
+    typer.echo("")
+    typer.echo(f"  {tool.unique_blocks} unique blocks across {len(tool.roots)} "
+               f"store paths ({tool.duplicates_eliminated} deduplicated within "
+               "this tool).")
+    typer.echo("  Sharing is by CID: a store path — or any file/subtree — shared")
+    typer.echo("  with another tool has the same CID here, so it is stored once.")
+    typer.echo("  Compare with `dsm inspect <cell> <other-tool> ipfs`.")
+
+
+@app.command()
+def inspect(
+    cell: str = typer.Argument(..., help="cell name, e.g. 'builtins'"),
+    tool: str = typer.Argument(
+        ..., help="a managed tool in the cell, e.g. 'ipfs' (see the cell's tools)"
+    ),
+    view: InspectView = typer.Argument(
+        ..., help="nix = store-path graph; ipfs = merkle DAG of blocks"
+    ),
+    depth: int = typer.Option(
+        2, "--depth", help="ipfs view: directory levels to expand per store path"
+    ),
+    verbose: bool = typer.Option(False, "--verbose", "-v"),
+    home: Optional[Path] = typer.Option(None, "--home"),
+):
+    """Show the structure of one tool inside a cell, one of two ways.
+
+    A nix closure is a graph of nix store paths; an ipfs structure is a merkle
+    DAG of content-addressed blocks. Examples:
+
+      dsm inspect builtins ipfs nix     # ipfs tool's store-path graph
+      dsm inspect builtins ipfs ipfs    # ipfs tool's block DAG
+    """
+    cells = known_cells()
+    CellType = cells.get(cell)
+    if CellType is None:
+        typer.echo(f"Unknown cell '{cell}'. Known cells: {', '.join(cells)}.")
+        typer.echo("(user-defined cells aren't loadable by name yet.)")
+        raise typer.Exit(code=1)
+
+    loggers = CliLoggers(verbose=verbose)
+    with _quieted(verbose):
+        built = cell_factory(loggers, root=home).get(CellType)
+        nix = Nix(cwd=Path.cwd(), log=loggers.proc)
+        dep = find_tool(built, tool)
+        if dep is None:
+            available = ", ".join(name for name, _ in cell_tools(built)) or "(none)"
+            typer.echo(f"Cell '{cell}' has no tool '{tool}'. Tools: {available}.")
+            raise typer.Exit(code=1)
+
+        if view is InspectView.nix:
+            result = inspect_tool_nix(nix, tool, dep)
+        else:
+            with tempfile.TemporaryDirectory() as scratch:
+                files = DesmataFiles.sandbox(Path(scratch), log=loggers)
+                ctx = BasicContext(
+                    name="inspect-scratch",
+                    cell_dir=Path(dep.root),
+                    userspace=files,
+                    loggers=loggers,
+                )
+                ipfs = Tools.IPFS(root=Path(dep.root), context=ctx)
+                ipfs.init()
+                result = inspect_tool_ipfs(nix, ipfs, tool, dep, depth=depth)
+
+    if view is InspectView.nix:
+        typer.echo(f"Cell '{cell}', tool '{tool}' — nix store-path graph "
+                   f"({len(result.sizes)} paths, {_human_size(result.total_size)}):")
+        _render_nix_graph(result)
+    else:
+        typer.echo(f"Cell '{cell}', tool '{tool}' — ipfs merkle DAG (by store path):")
+        _render_ipfs_dag(result)
+
+
 def cli():
     app()
 
 
 # retained for backwards compatibility with older entry points
 main = cli
+
+
+if __name__ == "__main__":
+    cli()

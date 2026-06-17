@@ -3,13 +3,26 @@ from pathlib import Path
 from injector import Binder, Injector, Module, singleton
 from pytest import fixture
 
-from desmata.builtins.cell import DesmataBuiltins
-from desmata.cell_factory import DefaultCellFactory
+from desmata.builtins.cell import DesmataBuiltins, Tools
+from desmata.cell_factory import BasicContext, DefaultCellFactory
 from desmata.db import LocalSqlite
 from desmata.fs import DesmataFiles
 from desmata.higher_protocols import CellFactory
 from desmata.log import TestLoggers
 from desmata.lower_protocols import DBFactory, Loggers, UserspaceFiles
+
+
+def make_ipfs(kubo_root: Path, home_root: Path, name: str = "peer") -> Tools.IPFS:
+    """An independent ipfs repo (its own HOME under ``home_root``) sharing the
+    kubo binary at ``kubo_root``. Two of these are two peers."""
+    log = TestLoggers()
+    files = DesmataFiles.sandbox(home_root, log=log)
+    context = BasicContext(
+        name=name, cell_dir=Path(kubo_root), userspace=files, loggers=log
+    )
+    ipfs = Tools.IPFS(root=Path(kubo_root), context=context)
+    ipfs.init()
+    return ipfs
 
 
 def _injector(root: Path) -> Injector:

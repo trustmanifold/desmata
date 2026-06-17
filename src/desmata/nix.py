@@ -28,6 +28,10 @@ class Nix(Tool):
             ]
 
         super().__init__(name="nix", cmd_filter=flakes_and_cmd, cwd=cwd, log=log.getChild("nix"))
+        # `nix-store` is a separate binary from `nix` and takes no flake flags.
+        # It owns the closure import/export primitives used to move a built
+        # dependency between peers by hash.
+        self._store = Tool(name="nix-store", cwd=cwd, log=log.getChild("nix-store"))
 
     def build(
         self, output_name: str
@@ -38,22 +42,60 @@ class Nix(Tool):
                     "--print-out-paths",
                     "--no-link",
                 ).strip()
-        dependency_info: list[NixPathInfo] = []
-        raw = json.loads(self("path-info", "--json", "-r", path_str))
+        return Path(path_str), self.closure_info(path_str)
+
+    def closure_info(self, path: str) -> list[NixPathInfo]:
+        """Parsed ``path-info`` for ``path`` and its whole closure (each entry
+        carries its store ``path``, ``narSize``, and ``references``)."""
+        raw = json.loads(self("path-info", "--json", "-r", path))
         # Older Nix returns a JSON array of info objects (each with a "path"
         # field); newer Nix returns a JSON object keyed by store path, with the
         # path omitted from the value. Normalize both into a list of objects
         # that carry their own "path".
         if isinstance(raw, dict):
-            info_objs = [{**value, "path": path} for path, value in raw.items()]
+            info_objs = [{**value, "path": p} for p, value in raw.items()]
         else:
             info_objs = raw
-        for info_obj in info_objs:
-            info = NixPathInfo.model_validate(info_obj)
-            dependency_info.append(info)
-        return Path(path_str), dependency_info
+        return [NixPathInfo.model_validate(obj) for obj in info_objs]
             
 
+
+    # --- closure transport ------------------------------------------------
+    # These move a store path and its whole dependency closure between machines
+    # as a self-contained NAR stream. They are the foundation of peer-to-peer,
+    # partition-tolerant dependency sharing: a peer who already has a closure can
+    # export it, and a peer who lacks it can import it -- no rebuild, no network.
+
+    def add_to_store(self, file: Path) -> str:
+        """Copy ``file`` into the nix store, returning its store path. The
+        result is a leaf (no references), useful as a minimal closure."""
+        return self._store("--add", str(file.resolve())).strip()
+
+    def closure_paths(self, path: str) -> list[str]:
+        """All store paths ``path`` depends on, transitively (itself included)."""
+        out = self._store("--query", "--requisites", path)
+        return [line.strip() for line in out.splitlines() if line.strip()]
+
+    def export_closure(self, paths: list[str], dest: Path) -> None:
+        """Serialize ``paths`` (binary NAR) to ``dest``. Pass a full closure
+        (see :meth:`closure_paths`) for the result to be importable elsewhere."""
+        self._store.run_to_file("--export", *paths, dest=dest)
+
+    def import_closure(self, src: Path, *, store: Path | None = None) -> list[str]:
+        """Import a NAR produced by :meth:`export_closure`, returning the store
+        paths added.
+
+        ``require-sigs`` is disabled: desmata addresses these payloads by IPFS
+        hash, which already guarantees integrity, so nix's signature trust is
+        redundant. ``store`` targets an alternate local store root (which the
+        importing user fully owns, so the option is honored there -- unlike the
+        privileged host daemon, which ignores it for non-trusted users)."""
+        args: list[str] = []
+        if store is not None:
+            args += ["--store", str(store)]
+        args += ["--option", "require-sigs", "false", "--import"]
+        out = self._store.run_from_file(*args, src=src)
+        return [line.strip() for line in out.splitlines() if line.strip()]
 
     def get_nar_sha256_hex(self, path: Path) -> str:
         raise NotImplementedError()

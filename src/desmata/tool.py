@@ -295,6 +295,77 @@ class Tool:
             **kwargs,
         ).stdout
 
+    def _binary_env(self, env_extras: EnvVars) -> dict[str, str]:
+        outer_env = dict(os.environ)
+        env = self.env_filter(outer_env.copy()) if self.env_filter else outer_env
+        env.update(env_extras)
+        return env
+
+    def run_to_file(
+        self,
+        *args: str,
+        dest: Path,
+        env_extras: EnvVars = {},
+        tolerate_err: bool = False,
+        **kwargs: Any,
+    ) -> None:
+        """
+        Run the tool and stream its (binary) stdout straight into ``dest``.
+
+        Unlike :meth:`run`, this never decodes stdout as text, so it is safe for
+        binary payloads like NAR streams (``nix-store --export``) and CAR files
+        (``ipfs dag export``). stderr is passed through as usual.
+        """
+        cmd = self._build_cmd(*args)
+        env = self._binary_env(env_extras)
+        popen_kwargs = self.get_popen_kwargs(**kwargs)
+        self.log.getChild(self.name).debug(
+            json.dumps({"pending(->file)": {"cmd": cmd, "dest": str(dest)}})
+        )
+        with open(dest, "wb") as out:
+            process = subprocess.Popen(
+                cmd, env=env, stdout=out, stderr=sys.stderr, **popen_kwargs
+            )
+            process.communicate()
+        if not tolerate_err and process.returncode != 0:
+            raise subprocess.CalledProcessError(process.returncode, cmd)
+
+    def run_from_file(
+        self,
+        *args: str,
+        src: Path,
+        env_extras: EnvVars = {},
+        tolerate_err: bool = False,
+        **kwargs: Any,
+    ) -> str:
+        """
+        Run the tool with ``src`` streamed (as binary) into its stdin, returning
+        decoded stdout.
+
+        The inverse of :meth:`run_to_file`: used for ``nix-store --import``,
+        whose input is a binary NAR but whose output (the imported store paths)
+        is text.
+        """
+        cmd = self._build_cmd(*args)
+        env = self._binary_env(env_extras)
+        popen_kwargs = self.get_popen_kwargs(**kwargs)
+        self.log.getChild(self.name).debug(
+            json.dumps({"pending(<-file)": {"cmd": cmd, "src": str(src)}})
+        )
+        with open(src, "rb") as inp:
+            process = subprocess.Popen(
+                cmd,
+                env=env,
+                stdin=inp,
+                stdout=subprocess.PIPE,
+                stderr=sys.stderr,
+                **popen_kwargs,
+            )
+            stdout_bytes, _ = process.communicate()
+        if not tolerate_err and process.returncode != 0:
+            raise subprocess.CalledProcessError(process.returncode, cmd)
+        return stdout_bytes.decode()
+
 
 SpecificTool = TypeVar("SpecificTool", bound="Tool")
 

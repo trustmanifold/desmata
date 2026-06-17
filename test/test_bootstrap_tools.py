@@ -68,3 +68,15 @@ def test_nix_get_id_strips_the_store_prefix():
     # the contract desmata relies on: a /nix/store path maps to its bare id
     path = Path("/nix/store/bilkygayml6y9lbr1xhc6v4yxcnxx154-kubo-0.28.0")
     assert Nix.get_id(path) == "bilkygayml6y9lbr1xhc6v4yxcnxx154-kubo-0.28.0"
+
+
+def test_nix_store_add_and_closure_query(tmp_path):
+    # desmata now relies on the `nix-store` interface for closure transport;
+    # verify the host's nix-store can add a path and report its closure.
+    nix = nix_tool()
+    probe = tmp_path / "probe.txt"
+    probe.write_text("conformance\n")
+    path = nix.add_to_store(probe)
+    assert path.startswith("/nix/store/")
+    # a freshly-added file is a leaf: its closure is just itself
+    assert nix.closure_paths(path) == [path]

@@ -49,6 +49,75 @@ class Tools:
             # (or just the file if the target wasn't a dir)
             return output.splitlines()[-1].split()[1]
 
+        # --- content-addressed store/move -----------------------------------
+        # get_hash above only *computes* a CID (``--only-hash``); the methods
+        # below actually store and move bytes between repos. Each Tools.IPFS is
+        # bound (via its context's HOME) to its own ipfs repo, so two instances
+        # on different homes are two independent peers. All operations are
+        # ``--offline`` -- the partition-tolerant data path never touches the
+        # network; moving blocks between repos is done with a CAR file.
+
+        def init(self) -> None:
+            """Initialize this repo if it isn't already (idempotent)."""
+            self("init", tolerate_err=True)
+
+        def add(
+            self, target: Path, *, recursive: bool = False, offline: bool = True
+        ) -> str:
+            """Store ``target`` in this repo and return its (root) CID.
+
+            ``recursive`` is needed when ``target`` is a directory (e.g. a nix
+            store path); ``-Q`` returns only the top-level CID."""
+            args = ["add", "-Q"]
+            if recursive:
+                args += ["-r", "-H"]  # include directory contents + hidden files
+            if offline:
+                args.append("--offline")
+            return self(*args, str(target.resolve())).strip().splitlines()[-1]
+
+        def refs(self, cid: str, *, offline: bool = True) -> list[str]:
+            """The CIDs of every distinct block reachable under ``cid`` (its
+            descendants, not ``cid`` itself). The block count of a stored object
+            is ``len(refs(cid)) + 1``."""
+            args = ["refs", "-r", "-u"]
+            if offline:
+                args.append("--offline")
+            out = self(*args, cid)
+            return [line.strip() for line in out.splitlines() if line.strip()]
+
+        def ls(self, cid: str) -> list[tuple[str, int, str]]:
+            """One level of the UnixFS DAG under ``cid`` as (child_cid, size,
+            name) tuples. Directory entries have names (``bin/``); a chunked
+            file's internal nodes come back with an empty name."""
+            entries: list[tuple[str, int, str]] = []
+            for line in self("ls", cid).splitlines():
+                if not line.strip():
+                    continue
+                parts = line.split(maxsplit=2)
+                child = parts[0]
+                try:
+                    size = int(parts[1]) if len(parts) > 1 else 0
+                except ValueError:
+                    size = 0  # directories report '-'
+                name = parts[2] if len(parts) > 2 else ""
+                entries.append((child, size, name))
+            return entries
+
+        def dag_export(self, cid: str, dest: Path) -> None:
+            """Write the blocks under ``cid`` to a CAR file at ``dest``."""
+            self.run_to_file("dag", "export", cid, dest=dest)
+
+        def dag_import(self, car: Path) -> None:
+            """Load a CAR file's blocks into this repo."""
+            self("dag", "import", str(car.resolve()))
+
+        def get(self, cid: str, dest: Path, *, offline: bool = True) -> None:
+            """Materialize ``cid`` from this repo's blocks into ``dest``."""
+            args = ["get"]
+            if offline:
+                args.append("--offline")
+            self(*args, cid, "-o", str(dest))
+
 
 class Deps:
     class IPFS(Dependency):
