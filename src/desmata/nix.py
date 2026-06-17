@@ -39,8 +39,17 @@ class Nix(Tool):
                     "--no-link",
                 ).strip()
         dependency_info: list[NixPathInfo] = []
-        for info_str in json.loads(self("path-info", "--json", "-r", path_str)):
-            info = NixPathInfo.model_validate(info_str)
+        raw = json.loads(self("path-info", "--json", "-r", path_str))
+        # Older Nix returns a JSON array of info objects (each with a "path"
+        # field); newer Nix returns a JSON object keyed by store path, with the
+        # path omitted from the value. Normalize both into a list of objects
+        # that carry their own "path".
+        if isinstance(raw, dict):
+            info_objs = [{**value, "path": path} for path, value in raw.items()]
+        else:
+            info_objs = raw
+        for info_obj in info_objs:
+            info = NixPathInfo.model_validate(info_obj)
             dependency_info.append(info)
         return Path(path_str), dependency_info
             

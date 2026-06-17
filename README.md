@@ -1,171 +1,185 @@
 # Desmata
 
+Desmata is an experimental package manager that addresses code and its
+dependencies by **cryptographic hash** instead of by name. It leans on two
+existing tools: [Nix](https://nixos.org) for reproducible builds, and
+[IPFS](https://ipfs.tech) for content-addressing.
 
-...is under construction, everything below is a lie (for now).
+> ### Status: early / pre-alpha
+>
+> The content-addressing **foundation** works end to end: desmata can build a
+> managed dependency (IPFS itself) with Nix, bring its whole dependency closure
+> under hash-addressed control, and verify the result — over the internet.
+>
+> The peer-to-peer distribution and the "call any function by its hash" developer
+> experience described under [Aspirations](#aspirations) are **not built yet**.
+> This README is careful to say which is which. See
+> [What works today](#what-works-today) and [What doesn't work yet](#what-doesnt-work-yet).
 
-## Handling dependencies so that the caller doesn't have to
+## Why
 
-One of Desmata's goals is to make it possible to write Python like its Unison.
-The thing I like about Unison is that it resolves function implementations by cryptographic hash.
-Here's how that looks with Desmata:
+Names are convenient but fragile. We've trusted domain names like `github.com`
+and package names like `leftpad` for decades, and when we lean on them hard we
+tend to get software that is:
 
-```python3
+- **insecure** — a heavily-relied-on name is a high-value target for corruption;
+- **unreliable** — turning a name into bits can give you *different* bits at
+  different times (a server is down, an upstream moved, a release was re-tagged);
+- **expensive** — because a name doesn't *consistently* map to the same bits,
+  you re-fetch and re-verify things you already had.
+
+Desmata's bet is that we can get much of the way without *globally meaningful*
+names: address payloads by hash, and keep all human-readable names **local**.
+People are good at trusting other people; they're worse at trusting global
+namespaces. Hash-addressing leans on the former.
+
+## Core concepts
+
+### Trusted vs. managed dependencies
+
+Desmata draws a hard line between two kinds of dependency:
+
+- **Trusted (you install them):** `nix`, `git`, and desmata itself (plus its
+  Python deps). Desmata does **not** distribute these. It assumes you installed
+  conforming versions and only *verifies their interfaces* (`dsm check`).
+- **Managed (desmata handles them):** everything else — starting with IPFS, and
+  eventually the dependencies of the cells you use. These are built with Nix,
+  content-addressed, and (eventually) moved between peers.
+
+This split is what should make offline/partition-tolerant use possible: the
+trusted tools are already on every machine, so only hash-addressed managed
+dependencies ever need to travel.
+
+### Cells
+
+A **cell** is desmata's unit of packaging. The builtin cell wraps IPFS; user
+cells will wrap whatever code and non-Python dependencies they need. When a cell
+is built, desmata resolves its Nix dependency closure and **internalizes** it —
+copying/hard-linking each store path into a desmata-controlled directory keyed
+both by id and by content hash.
+
+### Nucleus and membrane *(aspirational)*
+
+The files in a cell are intended to split into a **nucleus** (stable: `cell.py`,
+`flake.nix`, `flake.lock`) and a **membrane** (the part you're encouraged to fork
+and republish: config, glue). The idea is that you find a nucleus you trust, pick
+a membrane that resembles your use case, and start from something that already
+runs rather than a blank slate. *This split is not enforced in code yet.*
+
+## What works today
+
+You need `nix` (with flakes) and `git` installed. Enter the dev environment:
+
+```
+nix develop      # or: direnv allow
+```
+
+**Check the trusted tools.** Verifies your nix/git satisfy desmata's expectations:
+
+```
+$ dsm check
+Checking the tools desmata trusts you to provide.
+(desmata relies on your installation of these; it does not manage them.)
+
+  [ok  ] nix  version 2.31.2  — builds and pins desmata's managed dependencies
+  [ok  ] git  version 2.51.2  — local repository operations
+
+All trusted tools are present and conform. You're ready to bootstrap.
+```
+
+**Bootstrap.** Builds the builtin cell (IPFS/kubo) with Nix, internalizes its
+whole dependency closure under content-addressed control, and uses IPFS to
+content-address a probe — end-to-end proof the managed-dependency path works:
+
+```
+$ dsm bootstrap
+...
+Bootstrapped 'builtins' via internet.
+  ipfs dependency   : bilkygayml...-kubo-0.28.0
+  builtin cell hash : Qm…              ← its content address
+  probe "desmata"   → Qm…              ← produced by the managed ipfs
+```
+
+The first run may download from the internet (via Nix); afterwards it's served
+from cache. Bootstrapping is idempotent. Run with `--verbose` to watch Nix and
+IPFS work.
+
+**Inspect and reset local state.** Each cell keeps its runtime state (for the
+builtin cell, the IPFS repo and keys) in a home directory:
+
+```
+$ dsm cells
+Cells with local state:
+  builtins                9.6 KiB
+
+$ dsm clean builtins      # clear one cell's home (works for any cell type)
+$ dsm clean --all         # clear every cell's home
+```
+
+Everything above runs against the trusted+managed split: `nix`/`git` are checked,
+IPFS is built and content-addressed. There are **27 passing tests** covering the
+builtin cell, the trusted-tool checks, bootstrap, and cleaning.
+
+## What doesn't work yet
+
+These are real goals with partial or no implementation:
+
+- **Peer-to-peer distribution.** `dsm bootstrap --source peer` exists but raises
+  "not implemented"; there is no `publish` / `clone` / `peers` yet. Acquiring a
+  cell from a peer when offline is the headline goal and is unbuilt.
+- **Calling code by hash.** The `from_hash(...)` / "write Python like Unison"
+  developer experience (below) does not work; `desmata/get.py` is a stale stub.
+- **Cell packing/hashing.** `pack_cell`, `unpack_cell`, `get_cell_hash`,
+  `get_nucleus_hash` are `NotImplementedError` stubs. Today desmata content-
+  addresses dependency *paths* (`ipfs add --only-hash`), not whole cells.
+- **Nucleus/membrane split** — conceptual; not enforced.
+- **Cell metadata database** — stubbed (raises an informative error).
+- **`dsm publish` / `dsm clone` / `dsm peers` / `dsm ls`** — not implemented
+  (`ls` is a placeholder).
+
+## Aspirations
+
+The end state desmata is working toward.
+
+**Resolve implementations by hash**, the way Unison does — fetching and building
+non-Python dependencies transparently:
+
+```python
+# NOT YET WORKING — this is the target API
 from desmata.get import from_hash
-from desmata.interface import Cell
-from typing import Callable
 
-class Adder(Cell):
-    add: Callable[[int, int], int]
-
-adder = from_hash("QmWB61kWC2nCpq4XPU3rhtXRVbVUqgiR5V9198WvdNPjNu", interface=Arithmetic)
-
+adder = from_hash("Qm…", interface=Arithmetic)
 assert adder.add(1, 1) == 2
 ```
 
-The implementation of `add` might be elsewhere on the LAN, or further away.
-It may have non-python dependencies which are not installed.
-Desmata provides a way to package code so that those details don't contribute to problems for the user.
+**Collaborate by moving payloads, not by a shared namespace.** Desmata doesn't
+aim to replace `git`; it aims to replace emailing code or passing a thumb drive.
+No branches, no merges, no globally meaningful names — Alice publishes a cell and
+shares a public key, Bob adds Alice as a peer and clones it by hash, edits, and
+publishes back. (If you need branches and merges, use `git`; if a cell is complex
+enough to need them, maybe it should be two cells.)
 
-It make take some time the first time you call into a cell because maybe Desmata nees to fetch the cell from far away.
-And maybe Desmata has to build those dependencies (it wraps Nix for this).
-But calls to `add` should be reasonably fast the second time and there after.
+**Partition tolerance.** Because everything is hash-linked, a peer who already has
+a cell's closure can serve it to you when the internet is gone. The reframed goal
+for `dsm bootstrap`: use the internet when no peers are available, and use peers
+when no internet is available.
 
-## A different approach to code collaboration
+**Bidirectional dependency graph.** A traditional library can't see who depends on
+it. Desmata records the relationship both ways, so a nucleus author can ask who
+actually uses a given function rather than guessing whether a change will break
+someone.
 
-Desmata does not aim to compete with `git`.
-It aims to compete with emailing code to your peers, or handing them a thumb drive.
-Because lets face it, if software isn't your job, git is a bit much.
+## Development
 
-No branches, no merges, no globally meaningful name.
-We're just moving payloads around by cryptographic hash.
-All human readable names are local, which prevents leftpad-style skulduggery.
-
-**Alice**
-```
-$ mkdir awesome-adder && cd awesome-adder
-$ dsm init
-$ # hackity hack
-$ dsm publish
-  using folder name as cell name: awesome-adder
-  published cell: awesome-adder QmWBaeu6y1zEcKbsEqCuhuDHPL3W8pZouCPdafMCRCSUWk
-$ dsm pubkey
-    k51qzi5uqu5dlvj2baxnqndepeb86cbk3ng7n3i46uzyxzyqj2xjonzllnv0v8
-```
-
-> Hey Bob, I wrote a desmata cell for you.  It's called 'awesome-adder'.
-> My public key is
->    `k51qzi5uqu5dlvj2baxnqndepeb86cbk3ng7n3i46uzyxzyqj2xjonzllnv0v8`
-
-**Bob**
-```
-$ dsm peers add --name alice --pubkey k51qzi5uqu5dlvj2baxnqndepeb86cbk3ng7n3i46uzyxzyqj2xjonzllnv0v8
-  alice
-    awesome-adder QmWBaeu6y1zEcKbsEqCuhuDHPL3W8pZouCPdafMCRCSUWk
-$ dsm clone alice.awesome-adder
-$ cd alice.awesome-adder
-$ # hackity hack
-$ dsm publish
-$ dsm self pubkey
-    w22qzi5uqu5dlvj2baxnqndepeb86cbk3ng7n3i46uzyxzyqj2xjonzllnv1fF
- ```
-
-> Thanks Alice, I made some changes
-> My public key is `w22qzi5uqu5dlvj2baxnqndepeb86cbk3ng7n3i46uzyxzyqj2xjonzllnv1fF`
-
-**Alice**
-```
-$ dsm peers add --name bob --pubkey w22qzi5uqu5dlvj2baxnqndepeb86cbk3ng7n3i46uzyxzyqj2xjonzllnv1fF
-  bob
-    awesome-adder Qm55aF6y1zEcKbsaaRUkk5w2L3W8pZjpPPdafMCRCSKkz
-$ dsm clone bob.awesome-adder
-$ diff alice.awesome-adder/somefile.py bob.awesome-adder/somefile.py
-$ dsm publish 
-  derived cell name from folder name: awesome-adder
-  you already have a cell published under that name, overwrite Y/N?
-    Y
-  published cell: awesome-adder QmbWqxBEKC3P8tqsKc98xmWNzrzDtRLMiMPL8wBuTGsMnR
-```
-> Thanks Bob, I like your changes.
-> I've updated my cell with them so that my other peers can see them too
-
-### But I need branches and merges
-
-If so, use git instead.
-Or use git on the parent folder and desmata on a subfolder for each cell.
-
-But consider that if your project has become so complex that it needs those things, then maybe it should be two projects.
-I aspire towards cells that are so simple that a users can audit them.
-If you need branches and merges, has your project become to complex for your users to trust?
-
-### But I need globally meaningful names
-
-Desmata's raison d'etre is to explore the possibility that we can get by without globally meaningful names.
-
-People have been trusting other people for millenia.
-People have been trusting domain names like `github.com` or `pypi.org` and package names like `leftpad` for decades.
-We're good at the former, but when we try to do the latter we end up with **insecure**, **unreliable**, and **expensive** software.
-
-Insecure because when a name is heavily relied on it becomes a high value target for corruption.
-Unreliable because when its time to turn those names into bits, you might end up with different bits at different times (because maybe a server is down or maybe a solar flare destroyed the intenet).
-Expensive because *since* you can't rely on a name *consistently* mapping to the same bits, you have to re-compute things today that you computed yesterday to be sure that something hasn't changed since then.
-
-## Membranes and Nuclei, a different approach to software libraries
-
-The files that compose a Desmata cell either belong to the **nucleus** or the **membrane** (don't worry, the biology metaphor pretty much stops there).
-Nucleus files are expected to change infrequently, while people who copy a cell are encouraged to republish the cell with changes to its membrane.
+Dependencies are managed with [uv](https://docs.astral.sh/uv/) and packaged for
+Nix via [uv2nix](https://github.com/pyproject-nix/uv2nix).
 
 ```
-$ dsm ls
-  nucleus:
-    cell.py
-    flake.nix
-    flake.lock
-    app/
-
-  membrane:
-    config.txt
+nix develop                  # dev shell: editable desmata + uv, ruff, pyright
+pytest                       # run the test suite
+pytest -s test/test_x.py::y  # single test with logs
+uv lock                      # after editing pyproject.toml
+nix build                    # build the package (a venv)
 ```
 
-### For Users and Membrane Devs
-
-#### Less to review
-
-Users sometimes trust software without reviewing every line of code.
-Maybe if they knew that 95% of the code had been scrutinized heavily by people they trust, they would consider reviewing the other 5% themselves before using it for anything important.
-Desmata itself is not for code review, but it aims to associate code with a social graph in a way that will hopefully help make code review more effective.
-
-#### Start from a working state, not a blank slate
-
-When you install a library you end up with a blank slate.
-You don't know if the library worked, and you now have to read the docs to figure out how to even start using it.
-If that code is packaged in a cell instead, you can do this:
-
-1. find the hash of its nucleus
-2. find all cells with that nucleus
-3. find one that resembles your use case
-4. clone it locally
-
-Now you've got something that runs.
-You can prove to yourself that it works, and you can change it gradually--all the while continually proving to yourself that it still works.
-I think this is a friendlier way than having every user's first experience be a blank slate.
-
-#### Find usage examples among your peers
-
-If your developing a membrane and you need to call a function in a commonly-used nucleus, you can look to other membranes that use that nucleus for inspiration.
-
-### For Nucleus Devs
-
-#### See who is using your code, and how
-
-When a program depends on a traditional library, it's a relationship that only shows up in one direction.
-Anybody viewing the code for the program can see its dependencies, but there's no way for a library viewer to find the programs that depend on it.
-
-Desmata encodes the relationship so that it's queryable in both directions.
-So rather than assuming that a certain change will be a breaking one, you can go see whether it actually will be.
-
-
-
-
-
-
-
+See [CLAUDE.md](./CLAUDE.md) for code-style and structure notes.

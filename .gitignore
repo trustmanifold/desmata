@@ -161,3 +161,6 @@ cython_debug/
 
 .direnv/
 .DS_Store
+
+# nix build output
+result

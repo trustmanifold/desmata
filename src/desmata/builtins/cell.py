@@ -56,77 +56,76 @@ class Deps:
         def build_or_get(context: CellContext) -> "Deps.IPFS":
             nix = get_nix(context)
 
-            # ensure ipfs exists externally 
+            # ensure ipfs exists externally
             _root, _deps = nix.build("ipfs")
             ipfs_tool = Tools.IPFS(root=_root, context=context)
-            ipfs_tool("init")
+
+            # `ipfs init` creates a repo (keys + config) under the cell's HOME
+            # and errors if run a second time. Only initialize when absent so
+            # build_or_get stays idempotent: re-bootstrapping, and building any
+            # cell that depends on builtins, must not fail just because ipfs is
+            # already initialized. Use `dsm clean ipfs keys` to force a fresh repo.
+            ipfs_repo = Path(context.home) / ".ipfs"
+            if not (ipfs_repo / "config").exists():
+                ipfs_tool("init")
 
             # bring it and its deps under desmata's control
-            deps_by_id = {}
+            deps_by_id: dict[str, "Deps.IPFS"] = {}
+            root_dep: "Deps.IPFS | None" = None
             for subdag in nix.dep_dags(_deps, str(_root)):
                 proto_dep = ProtoDependency(
                     target=subdag.info.path,
                     dependencies=[
-                        (nix.get_id(str(x.path)), x.info.path) 
+                        (nix.get_id(x.info.path), x.info.path)
                         for x in subdag.immediate_dependencies
                     ],
                 )
                 dep_id, dep_hash = context.internalize_ids_hashes(
-                    proto_dep=proto_dep, 
+                    proto_dep=proto_dep,
                     id_getter=nix.get_id,
-                    path_hasher=ipfs_tool
+                    path_hasher=ipfs_tool,
                 )
 
-                raise NotImplementedError("fixed until here, below is redundaant, we already have the id and hash")
+                # nix.dep_dags provides leaves first and works towards the root,
+                # so each immediate dependency already has a Dependency in
+                # deps_by_id; resolve the /nix/store deps to Dependencies.
+                immediate_dependencies: dict[str, Dependency] = {}
+                for child in subdag.immediate_dependencies:
+                    child_id = nix.get_id(child.info.path)
+                    immediate_dependencies[child_id] = deps_by_id[child_id]
 
-                # nix.dep_dags provides leaves first and works towards the root
-                # thus, each immedate depencency should already have a Dependency in deps_by_id
-                # resolve the /nix/store deps to a Dependencies
-                immediate_dependencies = {}
-                for dep in subdag.immediate_dependencies:
-                    id = nix.get_id(dep.path)
-                    immediate_dependencies[id] = deps_by_id[id]
-
-                # construct a Dependency
-                id = nix.get_id(subdag.info.path)
                 dependency = Deps.IPFS(
-                        id=id,
-                        hash=context.hash_dep(internal_path=path),
-                        root=path,
-                        immediate_dependencies=immediate_dependencies
-                    )
-                deps_by_id[id] = dependency
-            
-            # Check if we processed at least one dependency
-            if not deps_by_id:
+                    id=dep_id,
+                    hash=dep_hash,
+                    root=subdag.info.path,
+                    immediate_dependencies=immediate_dependencies,
+                )
+                deps_by_id[dep_id] = dependency
+                # dep_dags yields the root last
+                root_dep = dependency
+
+            if root_dep is None:
                 raise ValueError("Nothing to build for ipfs")
 
-            return Deps.IPFS(**dependency.model_dump())
-                
+            return root_dep
 
-
-            
-
-
-    class Git(Dependency):
-        @staticmethod
-        def build_or_get(context: CellContext, hasher: PathHasher) -> "Deps.IPFS":
-            nix = get_nix(context)
-            root, transitive_deps = nix.build("git")
-            hash = hasher.get_hash(root)
-            id = Dependency.get_id(root)
-            return Deps.Git(id=id, hash=hash, root=root, closure=transitive_deps)
+        def get_tool(self, context: CellContext) -> "Tools.IPFS":
+            return Tools.IPFS(root=Path(self.root), context=context)
 
 
 class BuiltinsClosure(Closure):
+    # ipfs is the only *managed* builtin dependency: desmata builds it, content
+    # addresses it, and (eventually) shares it peer-to-peer. nix and git are
+    # trusted bootstrap tools the user is expected to have installed; their
+    # conformance is checked via their interfaces, not managed here.
     ipfs: Deps.IPFS
-    git: Deps.Git
 
 
 class DesmataBuiltins(Cell[BuiltinsClosure], Hasher, Storage):
     ipfs: Tools.IPFS
 
     def __init__(self, closure: BuiltinsClosure, context: CellContext):
+        super().__init__(closure, context)
         self.ipfs = closure.ipfs.get_tool(context)
 
     def get_dependency_hash(self, dep: Dependency) -> DependencyHash:

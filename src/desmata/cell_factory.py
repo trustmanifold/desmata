@@ -263,7 +263,6 @@ class DefaultCellFactory(CellFactory):
     @staticmethod
     def _get_dependency_types(ClosureType: type[Closure]) -> dict[str, Dependency]:
         dependency_types: dict[str, Dependency] = {}
-        print("got:", ClosureType)
         for attr, annotated_type in ClosureType.__annotations__.items():
             if issubclass(annotated_type, Dependency):
                 dependency_types[attr] = annotated_type
@@ -314,7 +313,6 @@ class DefaultCellFactory(CellFactory):
             dep.id = dep.get_id(dep.root)
             deps[attr_name] = dep
 
-        print(deps)
-        closure = ClosureType(**deps)
-        
-        return CellType(closure)
+        closure = ClosureType(local_name=name, **deps)
+
+        return CellType(closure, context)

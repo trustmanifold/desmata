@@ -1,11 +1,12 @@
 # Desmata Development Guide
 
 ## Build/Test Commands
-- Install dependencies: `poetry install`
-- Run all tests: `poetry run pytest`
-- Run single test with logs: `poetry run pytest -s test/test_file.py::test_name`
-- Build package: `poetry build`
-- Enter Nix dev environment: `nix develop`
+Dependencies are managed with uv and packaged for Nix via uv2nix.
+- Enter dev environment: `nix develop` (or `direnv allow` / `use flake`)
+- Update/lock dependencies: `uv lock` (after editing `pyproject.toml`)
+- Run all tests: `pytest` (inside the dev shell)
+- Run single test with logs: `pytest -s test/test_file.py::test_name`
+- Build package (venv): `nix build`
 
 ## Code Style
 - **Imports**: stdlib → third-party → local (alphabetical within groups)

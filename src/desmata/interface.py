@@ -31,8 +31,11 @@ class Dependency(BaseModel, ABC):
 
 class Closure(BaseModel, ABC):
     local_name: str
-    hash: CellHash
-    nucleus_hash: NucleusHash
+    # These are populated once the cell-hashing machinery (Hasher) is
+    # implemented; until then a closure can be constructed from its
+    # dependencies alone.
+    hash: CellHash | None = None
+    nucleus_hash: NucleusHash | None = None
 
 
     @property
@@ -52,7 +55,8 @@ SpecificClosure = TypeVar("SpecificClosure", bound=Closure)
 class Cell(ABC, Generic[SpecificClosure]):
     closure: SpecificClosure
 
-    def __init__(self, closure: Closure):
+    def __init__(self, closure: Closure, context: CellContext):
         self.closure = closure
+        self.context = context
 
 SpecificCell = TypeVar("SpecificCell", bound=Cell)

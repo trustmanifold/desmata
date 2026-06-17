@@ -3,7 +3,7 @@ from injector import Binder, Injector, Module, singleton
 from pytest import fixture
 
 from desmata.log import TestLoggers, LocalCallbackLogListener
-from desmata.protocols import Loggers, LogListener, LogSubject
+from desmata.lower_protocols import Loggers, LogListener, LogSubject
 
 
 @fixture

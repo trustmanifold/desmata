@@ -19,8 +19,9 @@
     in
     {
       packages = {
+        # ipfs is the managed builtin dependency; nix and git are trusted
+        # bootstrap tools the user installs, not things desmata builds.
         ipfs = pkgs.kubo;
-        git = pkgs.git;
       };
 
       devShells.default = pkgs.mkShell {
