@@ -6,6 +6,10 @@ is to constrain *one* future decision — the shape of the provenance projection
 so this future stays reachable. Nothing here needs building now; the obligation is
 "don't foreclose it," and the current `Attestation` shape already doesn't.
 
+For the *process boundary* (desmata is an app on an SP node, not a layer of it),
+see [desmata-as-semantic-paint-app.md](./desmata-as-semantic-paint-app.md); this
+primer covers the *record projection*.
+
 **Audience:** whoever designs desmata's provenance projection / eventual trust
 layer. Read alongside [trustix-interop.md](./trustix-interop.md) and
 [phase-2.md](./phase-2.md) (the "Deferred" section names the gap this fills).

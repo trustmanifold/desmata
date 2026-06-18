@@ -13,11 +13,17 @@ So: the general :class:`Attestation` is the schema; :class:`NarInfo` is the
 nix-build projection and the Trustix-compatible wire record. Runtime computations
 (e.g. running a tool on some data) would add new runners/projections without
 changing the core shape.
+
+A third projection, :class:`Brushstroke`, targets a Semantic Paint web-of-trust
+trust layer (``agent_primers/semantic-paint-trust-layer.md``) — a richer
+alternative to Trustix's flat M-of-N, scoring transitive weighted trust. The same
+captured record thus speaks to both: Trustix for flat-quorum interop, SP for
+trust-graph gossip.
 """
 
 import json
-from collections.abc import Iterable
-from dataclasses import dataclass
+from collections.abc import Callable, Iterable
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from desmata.interface import Dependency
@@ -55,6 +61,66 @@ class Attestation:
     # verifiable-computation.md §3. Nix builds are exact-hash; non-reproducible
     # runtime tools will need other policies.
     determinism: str = "exact-hash"
+
+
+# Semantic Paint color/palette identifiers for the nix-build projection.
+# A reproducibility palette carries *verifiable* colors (SP §2.8): claims a
+# recipient can confirm by re-execution, where trust scoring is a recompute-saving
+# fallback rather than the only basis for belief.
+SP_REPRODUCIBILITY_PALETTE = "reproducibility/v1"
+SP_BUILDS_TO = "builds_to"    # builds_to(Recipe|StorePath [key], NarHash [value])
+SP_REFERENCES = "references"  # references(StorePath [key], Dep [value]) — a closure edge
+
+
+@dataclass(frozen=True)
+class Brushstroke:
+    """The Semantic Paint projection of an :class:`Attestation` — a signed, typed,
+    content-addressed claim consumable by an SP web-of-trust trust layer, exactly
+    as :class:`NarInfo` is consumable by Trustix.
+
+    This is the third projection of the same captured record (Trustix
+    KeyValuePair, general Attestation, SP Brushstroke); see
+    ``agent_primers/semantic-paint-trust-layer.md``. Fields mirror SP's public
+    record (protocol_design.md §6.3): a ``color`` in a ``palette``, positional
+    ``args``, and a signature by the peer's ed25519 key — the *same* key that acts
+    as a Trustix ``LogSigner``. ``key``/``value`` arg roles live in the SP color
+    definition, not here; for ``builds_to`` the first arg is the key (the recipe
+    or input-addressed identity) and the second is the value (the output hash),
+    which is what lets SP detect *conflicting attestations* (SP §2.8)."""
+
+    color: str
+    palette: str
+    args: tuple[str, ...]
+    determinism: str = "exact-hash"     # SP verification facet; nix builds are exact-hash
+    suite: str | None = None            # SP crypto suite id; set when signed
+    author_sig: bytes | None = None     # ed25519 sig by the peer key; set when signed
+
+    def signing_input(self) -> bytes:
+        """Canonical bytes a peer signs to author this brushstroke. Field order is
+        pinned (as with :meth:`NarInfo.trustix_value`) so signatures verify
+        byte-for-byte across implementations."""
+        obj = {
+            "color": self.color,
+            "palette": self.palette,
+            "args": list(self.args),
+            "determinism": self.determinism,
+        }
+        return json.dumps(obj, separators=(",", ":")).encode()
+
+    def signed(self, suite: str, sign: Callable[[bytes], bytes]) -> "Brushstroke":
+        """Return a signed copy. ``sign`` is the peer's ed25519 signer (the desmata
+        peer key == Trustix LogSigner == SP author key)."""
+        return replace(self, suite=suite, author_sig=sign(self.signing_input()))
+
+    def to_dict(self) -> dict:
+        return {
+            "color": self.color,
+            "palette": self.palette,
+            "args": list(self.args),
+            "determinism": self.determinism,
+            "suite": self.suite,
+            "authorSig": self.author_sig.hex() if self.author_sig else None,
+        }
 
 
 @dataclass(frozen=True)
@@ -114,6 +180,35 @@ class NarInfo:
             outputs=(Artifact(store_path=self.path, nar_hash=self.nar_hash),),
             determinism="exact-hash",
         )
+
+    def to_brushstrokes(self) -> list[Brushstroke]:
+        """Project this nix record onto Semantic Paint brushstrokes (SP §2.8):
+
+        - one ``builds_to`` claim — key = the recipe (``deriver``) when known, else
+          the input-addressed store path; value = the content (NAR) hash. This is
+          the verifiable claim a recipient can confirm by rebuilding, and whose
+          key/value split lets SP flag a *conflicting* attestation (same recipe,
+          different output hash = Trustix's "Unreproduced").
+        - one ``references`` edge per closure reference — the bidirectional
+          dependency graph desmata wants, expressed as SP links.
+
+        Unsigned; call :meth:`Brushstroke.signed` with the peer key when emitting.
+        """
+        key = self.deriver or self.path
+        build = Brushstroke(
+            color=SP_BUILDS_TO,
+            palette=SP_REPRODUCIBILITY_PALETTE,
+            args=(key, self.nar_hash),
+        )
+        edges = [
+            Brushstroke(
+                color=SP_REFERENCES,
+                palette=SP_REPRODUCIBILITY_PALETTE,
+                args=(self.path, ref),
+            )
+            for ref in self.references
+        ]
+        return [build, *edges]
 
     def trustix_key(self) -> bytes:
         """Trustix nix-protocol Key: the store path string."""
