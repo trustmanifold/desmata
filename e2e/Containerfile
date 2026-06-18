@@ -1,0 +1,30 @@
+# A desmata peer image: the trusted bootstrap tools (nix + git + ssh) plus the
+# dsm CLI installed from wheels with uv. Two containers from this image, on a
+# partitioned network, play peers A and B (see e2e/README.md).
+#
+# Deliberately lean: we do NOT `nix build` desmata's closure (that pulls the
+# whole nixpkgs eval/build closure into the image). nix is kept only for the
+# *runtime* cell builds; desmata itself is a handful of small Python wheels.
+FROM docker.io/nixos/nix:latest
+
+# Flakes on; nix's build sandbox off (no user namespaces inside the container).
+RUN printf '%s\n' \
+      'experimental-features = nix-command flakes' \
+      'sandbox = false' \
+      'filter-syscalls = false' >> /etc/nix/nix.conf
+
+# Trusted tools (nix is in the base image) + a python/uv to install dsm.
+# GC the eval closure afterwards so it doesn't bloat the image.
+RUN nix profile install --priority 4 \
+      nixpkgs#git nixpkgs#openssh nixpkgs#iproute2 nixpkgs#curl \
+      nixpkgs#python312 nixpkgs#uv \
+ && nix-collect-garbage -d >/dev/null 2>&1 || true
+
+# Install the dsm CLI from wheels (no nix build of desmata).
+COPY . /desmata
+WORKDIR /desmata
+RUN UV_PYTHON_DOWNLOADS=never uv sync --frozen --no-dev \
+ && rm -rf /root/.cache/uv
+
+ENV PATH=/desmata/.venv/bin:/root/.nix-profile/bin:/nix/var/nix/profiles/default/bin:/usr/bin:/bin
+CMD ["sleep", "infinity"]

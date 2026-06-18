@@ -1,3 +1,4 @@
+import getpass
 import importlib
 import os
 import platform
@@ -57,7 +58,10 @@ class LocalCaller(Caller):
     def __init__(self):
         self.node = platform.node()
         self.platform_desc = platform.platform()
-        self.user = os.getlogin()
+        # getpass.getuser() reads env/pwd and works without a controlling tty;
+        # os.getlogin() raises "Inappropriate ioctl for device" in containers,
+        # daemons, and CI.
+        self.user = getpass.getuser()
         self.pid = os.getpid()
 
     node: str
