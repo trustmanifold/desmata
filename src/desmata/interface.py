@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Generic, TypeVar
+from typing import ClassVar, Generic, TypeVar
 
 from pydantic import BaseModel
 
@@ -29,24 +29,23 @@ class Dependency(BaseModel, ABC):
             return root.parts[3]
 
 
+# The nucleus: a cell's stable, defining files -- hashed and shared. The membrane
+# is everything else in the cell directory (config/glue you fork). Enforcement and
+# hashing live in desmata.cell_archive; this is the canonical file list.
+NUCLEUS: tuple[str, ...] = ("flake.nix", "flake.lock", "cell.py")
+
+
 class Closure(BaseModel, ABC):
     local_name: str
-    # These are populated once the cell-hashing machinery (Hasher) is
-    # implemented; until then a closure can be constructed from its
-    # dependencies alone.
+    # Content addresses of the cell. ``nucleus_hash`` covers only the nucleus
+    # files (invariant to membrane changes); ``hash`` covers the whole cell
+    # (nucleus + membrane). Populated by the cell-hashing machinery
+    # (desmata.cell_archive); a closure can be constructed without them.
     hash: CellHash | None = None
     nucleus_hash: NucleusHash | None = None
 
-
-    @property
-    @staticmethod
-    def nucleus() -> list[str]:
-        return ["./flake.nix", "./flake.lock"]
-
-    @property
-    @staticmethod
-    def membrane() -> list[str]:
-        return ["./cell.py"]
+    # the nucleus file names (the membrane is "everything else in the cell dir")
+    nucleus: ClassVar[tuple[str, ...]] = NUCLEUS
 
 
 SpecificClosure = TypeVar("SpecificClosure", bound=Closure)

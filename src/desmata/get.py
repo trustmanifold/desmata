@@ -7,6 +7,24 @@ as the stable public name; discovery (fetching the bundle from a peer given only
 the hash) and an ``interface=`` check are the remaining layers.
 """
 
-from desmata.cell_archive import from_hash, load_cell_class, nucleus_hash, pack_cell
+from desmata.cell_archive import (
+    InvalidCell,
+    cell_hash,
+    from_hash,
+    from_peer,
+    load_cell_class,
+    nucleus_hash,
+    pack_cell,
+    publish_cell,
+)
 
-__all__ = ["from_hash", "load_cell_class", "nucleus_hash", "pack_cell"]
+__all__ = [
+    "InvalidCell",
+    "cell_hash",
+    "from_hash",
+    "from_peer",
+    "load_cell_class",
+    "nucleus_hash",
+    "pack_cell",
+    "publish_cell",
+]

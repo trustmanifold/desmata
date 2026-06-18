@@ -21,10 +21,17 @@ from pathlib import Path
 
 from desmata.builtins.cell import Tools
 from desmata.higher_protocols import CellFactory
-from desmata.interface import Cell
+from desmata.interface import NUCLEUS, Cell
 
-# The stable files that define a cell (see the README's nucleus/membrane split).
-NUCLEUS = ("flake.nix", "flake.lock", "cell.py")
+# NUCLEUS (the stable, defining files, imported from interface) is hashed and
+# shared; the membrane is everything else in the cell directory (config/glue you
+# fork). The split is enforced: the nucleus hash is invariant to membrane
+# changes, and a directory missing any nucleus file is not a cell.
+_MEMBRANE_IGNORE = {"__init__.py"}  # packaging noise, not config
+
+
+class InvalidCell(ValueError):
+    """A directory that is not a valid cell (e.g. missing nucleus files)."""
 
 
 def nucleus_files(cell_dir: Path) -> list[Path]:
@@ -32,20 +39,56 @@ def nucleus_files(cell_dir: Path) -> list[Path]:
     return [cell_dir / name for name in NUCLEUS if (cell_dir / name).exists()]
 
 
-def _nucleus_manifest(ipfs: Tools.IPFS, cell_dir: Path) -> tuple[str, dict]:
-    """Add each nucleus file to ``ipfs`` and build an IPLD manifest linking them;
-    return ``(manifest_cid, manifest)``. The CID is the cell's nucleus hash."""
-    entries = [
-        {"name": f.name, "blob": {"/": ipfs.add(f)}}
-        for f in nucleus_files(Path(cell_dir))
-    ]
-    manifest = {"nucleus": entries}
+def membrane_files(cell_dir: Path) -> list[Path]:
+    """The membrane files: everything in ``cell_dir`` that isn't the nucleus (or
+    packaging noise), sorted. These are the local, forkable parts of a cell."""
+    cell_dir = Path(cell_dir)
+    return sorted(
+        p
+        for p in cell_dir.iterdir()
+        if p.is_file()
+        and p.name not in NUCLEUS
+        and p.name not in _MEMBRANE_IGNORE
+        and not p.name.endswith(".pyc")
+    )
+
+
+def require_nucleus(cell_dir: Path) -> None:
+    """Raise :class:`InvalidCell` unless ``cell_dir`` has every nucleus file."""
+    missing = [n for n in NUCLEUS if not (Path(cell_dir) / n).exists()]
+    if missing:
+        raise InvalidCell(
+            f"{cell_dir} is not a cell: missing nucleus file(s) {missing}"
+        )
+
+
+def _manifest(ipfs: Tools.IPFS, key: str, files: list[Path]) -> tuple[str, dict]:
+    entries = [{"name": f.name, "blob": {"/": ipfs.add(f)}} for f in files]
+    manifest = {key: entries}
     return ipfs.dag_put(manifest), manifest
 
 
+def _nucleus_manifest(ipfs: Tools.IPFS, cell_dir: Path) -> tuple[str, dict]:
+    """Add each nucleus file to ``ipfs`` and build an IPLD manifest linking them;
+    return ``(manifest_cid, manifest)``. The CID is the cell's nucleus hash."""
+    require_nucleus(cell_dir)
+    return _manifest(ipfs, "nucleus", nucleus_files(Path(cell_dir)))
+
+
 def nucleus_hash(ipfs: Tools.IPFS, cell_dir: Path) -> str:
-    """The content address of a cell's nucleus (deterministic)."""
+    """The content address of a cell's nucleus (deterministic, and invariant to
+    membrane changes -- forking the config doesn't change it)."""
     cid, _ = _nucleus_manifest(ipfs, Path(cell_dir))
+    return cid
+
+
+def cell_hash(ipfs: Tools.IPFS, cell_dir: Path) -> str:
+    """The content address of a *whole* cell: nucleus + membrane. Two cells with
+    the same nucleus but different membranes share a :func:`nucleus_hash` but
+    differ here -- which is how you find sibling cells and tell them apart."""
+    require_nucleus(cell_dir)
+    files = nucleus_files(Path(cell_dir)) + membrane_files(cell_dir)
+    cid, _ = _manifest(ipfs, "cell", files)
     return cid
 
 
@@ -116,5 +159,33 @@ def from_hash(
     ``from_hash("Qm…", interface=...)`` is this with discovery + an interface
     check on top."""
     unpack_cell(ipfs, car, cid, into)
+    require_nucleus(into)  # a reconstructed bundle must be a valid cell
     cell_class = load_cell_class(Path(into))
     return factory.get(cell_class)
+
+
+def publish_cell(ipfs: Tools.IPFS, cell_dir: Path) -> str:
+    """Store a cell's nucleus in ``ipfs`` (so peers can fetch it by hash) and
+    return its content address -- the cid a peer passes to :func:`from_peer`."""
+    return nucleus_hash(ipfs, Path(cell_dir))
+
+
+def from_peer(
+    peer_ipfs: Tools.IPFS,
+    ipfs: Tools.IPFS,
+    factory: CellFactory,
+    cid: str,
+    *,
+    into: Path,
+    workdir: Path,
+) -> Cell:
+    """Fetch a cell from a peer **by its hash alone** and run it: the peer serves
+    the nucleus bundle for ``cid`` (``peer_ipfs``), this node imports it, then
+    reconstructs and builds the cell. No prior copy of the cell is needed -- only
+    the hash and a reference to a peer that has it.
+
+    Here ``peer_ipfs`` is the peer's ipfs repo (two repos on one host in tests);
+    over a network it is the same call against a remote/ssh-wrapped ipfs."""
+    car = Path(workdir) / f"{cid}.car"
+    peer_ipfs.dag_export(cid, dest=car)
+    return from_hash(ipfs, factory, cid, car, into=into)
