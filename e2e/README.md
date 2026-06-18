@@ -30,17 +30,19 @@ The staged flow (`run.sh`), all green:
 4. peer A `dsm bootstrap`s over the internet → probe `CID_A`
 5. peer B's `dsm bootstrap` **fails** offline — it has no ipfs and no internet,
    so it needs a peer
-6. B pulls ipfs's closure from A over ssh (`nix copy --from ssh://peer@A`) — the
-   trusted-tools bootstrap transport, the chicken-and-egg breaker
-7. B reproduces the probe hash with the A-sourced ipfs: **`CID_B == CID_A`**
+6. A is set up to serve its nix store over ssh (as an unprivileged `peer` user)
+7. B runs **`dsm bootstrap --source peer --from ssh://peer@A --ipfs-path …`** —
+   desmata's own flow pulls ipfs's closure over the trusted tools (nix+ssh, the
+   chicken-and-egg breaker), constructs the builtin cell from it without
+   rebuilding, and hashes the probe: **`CID_B == CID_A`**
 
 ## Status
 
-Passing: peer B, partitioned from the internet, reproduces peer A's content hash
-using ipfs it received from A over the trusted tools. Wrapping the manual stage-6
-transport into a `dsm bootstrap --source ssh://peer@A` subcommand (so it's
-desmata's own flow rather than the harness's `nix copy`) is the remaining thread-1
-polish — the mechanism is proven here.
+Passing, end to end through desmata's own CLI: peer B, partitioned from the
+internet, reproduces peer A's content hash by `dsm bootstrap --source peer`-ing
+ipfs from A over the trusted tools. (Automatic discovery of the peer's ipfs path
+— so `--ipfs-path` isn't needed — awaits cell manifests; see Phase 4 / item 4 in
+`agent_primers/phase-2.md`.)
 
 ## Notes
 

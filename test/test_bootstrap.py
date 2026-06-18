@@ -37,9 +37,11 @@ def test_bootstrap_builds_and_uses_builtin_cell(tmp_path):
     assert result.probe_cid.startswith("Qm")
 
 
-def test_bootstrap_peer_source_is_not_implemented_yet(tmp_path):
+def test_bootstrap_peer_source_requires_peer_args(tmp_path):
+    # peer bootstrap is implemented, but needs the peer's store URL + ipfs path
+    # (automatic discovery awaits cell manifests)
     factory = cell_factory(TestLoggers(), root=tmp_path / "home")
-    with pytest.raises(NotImplementedError):
+    with pytest.raises(ValueError):
         bootstrap_builtins(
             factory, workdir=tmp_path, source=BootstrapSource.peer
         )

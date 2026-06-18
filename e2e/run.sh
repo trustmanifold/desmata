@@ -84,12 +84,13 @@ if podman exec peerB dsm bootstrap >/dev/null 2>&1; then
 fi
 echo "B bootstrap failed offline as expected (it needs a peer)"
 
-# --- 6. set up ssh on A and pull ipfs's closure to B -----------------------
+# --- 6. set up A to serve its nix store over ssh ---------------------------
 # A serves over ssh as an unprivileged `peer` user (nixpkgs' sshd denies root
 # login; the privsep `sshd` user and an /etc/nsswitch.conf are also needed for
-# the nix-built sshd inside a foreign-glibc container). `remote-program` gives
-# the absolute nix-store so the non-login ssh session can find it.
-say "6: B pulls ipfs from A over ssh (nix copy --from ssh://peer@A)"
+# the nix-built sshd inside a foreign-glibc container). `remote-program` (passed
+# in the store URL below) gives the absolute nix-store so the non-login ssh
+# session can find it.
+say "6: set up A to serve its nix store over ssh (peer user)"
 ssh-keygen -t ed25519 -N '' -f "$TMP/id" -q
 podman exec peerA sh -c '
   printf "passwd: files\ngroup: files\nhosts: files dns\n" > /etc/nsswitch.conf
@@ -107,22 +108,18 @@ podman exec peerA sh -c '
 '
 podman cp "$TMP/id" peerB:/root/id
 podman exec peerB chmod 600 /root/id
-NIXSTORE="$(podman exec peerA sh -c 'command -v nix-store')"
-podman exec peerB sh -c '
-  export NIX_SSHOPTS="-i /root/id -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
-  nix copy --from "ssh://peer@'"$A_IP"'?remote-program='"$NIXSTORE"'" --no-check-sigs '"$IPFS_PATH"'
-' || fail "nix copy from A failed"
-podman exec peerB test -e "$IPFS_PATH/bin/ipfs" || fail "ipfs not present in B after copy"
-echo "B acquired ipfs from A (no internet): $IPFS_PATH"
+echo "A serving its store over ssh as user 'peer'"
 
-# --- 7. B reproduces the probe hash with the A-sourced ipfs ----------------
-say "7: B reproduces CID_A using the ipfs it got from A"
-CID_B="$(podman exec peerB sh -c '
-  export IPFS_PATH=/tmp/b-ipfs
-  '"$IPFS_PATH"'/bin/ipfs init >/dev/null 2>&1
-  printf "desmata" > /tmp/probe
-  '"$IPFS_PATH"'/bin/ipfs add -rHQ --only-hash /tmp/probe
-')"
+# --- 7. B peer-bootstraps from A with desmata's own flow -------------------
+say "7: B runs 'dsm bootstrap --source peer' from A, reproducing CID_A"
+NIXSTORE="$(podman exec peerA sh -c 'command -v nix-store')"
+B_OUT="$(podman exec peerB sh -c '
+  export NIX_SSHOPTS="-i /root/id -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+  dsm bootstrap --source peer \
+    --from "ssh://peer@'"$A_IP"'?remote-program='"$NIXSTORE"'" \
+    --ipfs-path "'"$IPFS_PATH"'" 2>&1
+')" || { echo "$B_OUT"; fail "B peer-bootstrap failed"; }
+CID_B="$(printf '%s\n' "$B_OUT" | grep 'probe' | grep -oE 'Qm[1-9A-HJ-NP-Za-km-z]{44}' | head -1)"
 echo "CID_B      = $CID_B"
 [ "$CID_A" = "$CID_B" ] || fail "hash mismatch: A=$CID_A B=$CID_B"
 

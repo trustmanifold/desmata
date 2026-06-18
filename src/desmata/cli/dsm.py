@@ -136,12 +136,22 @@ def bootstrap(
         "--home",
         help="sandbox desmata's state under this directory instead of the XDG dirs",
     ),
+    from_url: Optional[str] = typer.Option(
+        None, "--from", help="peer source: a nix store URL, e.g. ssh://peer@host",
+    ),
+    ipfs_path: Optional[str] = typer.Option(
+        None, "--ipfs-path", help="peer source: the ipfs store path to fetch",
+    ),
 ):
     """Verify desmata can build and use its managed dependencies.
 
     Builds the builtin cell (which wraps ipfs/kubo) and uses it to
     content-address a probe -- end-to-end proof that the managed-dependency
     path works on this host.
+
+    With `--source peer --from ssh://peer@host --ipfs-path /nix/store/...`, the
+    cell is acquired from a peer over the trusted tools (nix+ssh) instead of being
+    built -- for a node with no internet.
     """
     loggers = CliLoggers(verbose=verbose)
 
@@ -158,18 +168,24 @@ def bootstrap(
         raise typer.Exit(code=1)
     typer.echo("")
 
-    typer.echo("Step 2/2: build the builtin (ipfs) cell and use it")
-    typer.echo("  desmata builds ipfs with nix, then brings it and its whole")
-    typer.echo("  dependency closure under content-addressed control. The first run")
-    typer.echo("  may download from the internet; afterwards it's served from cache.")
-    typer.echo("  (run with --verbose to watch nix and ipfs work)")
+    if source is BootstrapSource.peer:
+        typer.echo("Step 2/2: acquire the builtin (ipfs) cell from a peer")
+        typer.echo(f"  pulling ipfs's closure from {from_url} over the trusted tools")
+        typer.echo("  (nix+ssh) -- no internet, no rebuild -- then using it.")
+    else:
+        typer.echo("Step 2/2: build the builtin (ipfs) cell and use it")
+        typer.echo("  desmata builds ipfs with nix, then brings it and its whole")
+        typer.echo("  dependency closure under content-addressed control. The first run")
+        typer.echo("  may download from the internet; afterwards it's served from cache.")
+        typer.echo("  (run with --verbose to watch nix and ipfs work)")
 
     factory = cell_factory(loggers, root=home)
     try:
         with tempfile.TemporaryDirectory() as workdir:
             with _quieted(verbose):
                 result = bootstrap_builtins(
-                    factory, workdir=Path(workdir), source=source
+                    factory, workdir=Path(workdir), source=source,
+                    from_url=from_url, ipfs_path=ipfs_path,
                 )
     except NotImplementedError as e:
         typer.echo("")

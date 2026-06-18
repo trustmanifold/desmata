@@ -27,8 +27,9 @@ from pathlib import Path
 
 from xdg_base_dirs import xdg_data_home
 
-from desmata.builtins.cell import DesmataBuiltins
-from desmata.cell_factory import DefaultCellFactory
+import desmata.builtins.cell as _builtins_cell
+from desmata.builtins.cell import BuiltinsClosure, Deps, DesmataBuiltins
+from desmata.cell_factory import BasicContext, DefaultCellFactory
 from desmata.consts import desmata
 from desmata.db import LocalSqlite
 from desmata.fs import DesmataFiles
@@ -192,31 +193,92 @@ class BootstrapResult:
     probe_cid: str
 
 
+def _probe(workdir: Path, ipfs) -> str:
+    probe = workdir / "desmata-bootstrap-probe"
+    probe.write_text("desmata")
+    return ipfs.get_hash(probe)
+
+
+def construct_builtins_from_path(
+    factory: DefaultCellFactory, ipfs_path: str
+) -> DesmataBuiltins:
+    """Build the builtin cell from an ipfs store path that is already present
+    locally -- without evaluating or building the flake. This is the eval-free
+    path a peer-bootstrapped node takes: it has received ipfs's closure, so it
+    just wraps it."""
+    cell_dir = Path(_builtins_cell.__file__).parent
+    context = BasicContext(
+        name="builtins",
+        cell_dir=cell_dir,
+        userspace=factory.userspace,
+        loggers=factory.log,
+    )
+    ipfs_dep = Deps.IPFS(
+        id=Nix.get_id(Path(ipfs_path)),
+        hash="",
+        root=Path(ipfs_path),
+        immediate_dependencies={},
+    )
+    closure = BuiltinsClosure(local_name="builtins", ipfs=ipfs_dep)
+    cell = DesmataBuiltins(closure, context)
+    # the internet path inits the ipfs repo while building; the peer path didn't
+    # build, so init here -- `ipfs add --only-hash` needs a repo (idempotent)
+    cell.ipfs.init()
+    return cell
+
+
+def _bootstrap_from_peer(
+    factory: DefaultCellFactory, *, workdir: Path, from_url: str, ipfs_path: str
+) -> BootstrapResult:
+    """Acquire ipfs's closure from a peer (over the trusted tools -- no ipfs),
+    then construct and use the builtin cell without rebuilding it."""
+    nix = Nix(cwd=Path(_builtins_cell.__file__).parent, log=factory.log.proc)
+    # the chicken-and-egg breaker: nix moves the closure, no ipfs required
+    nix("copy", "--from", from_url, "--no-check-sigs", ipfs_path)
+
+    builtins = construct_builtins_from_path(factory, ipfs_path)
+    return BootstrapResult(
+        source=BootstrapSource.peer,
+        cell_local_name=builtins.closure.local_name,
+        ipfs_dep_id=builtins.closure.ipfs.id,
+        ipfs_dep_hash="(acquired from peer)",
+        probe_cid=_probe(workdir, builtins.ipfs),
+    )
+
+
 def bootstrap_builtins(
     factory: CellFactory,
     *,
     workdir: Path,
     source: BootstrapSource = BootstrapSource.auto,
+    from_url: str | None = None,
+    ipfs_path: str | None = None,
 ) -> BootstrapResult:
     """Build the builtin cell and prove it works by hashing a probe with ipfs.
 
     The probe round-trips desmata's reason for managing ipfs at all: turning
     bytes into a content address.
+
+    With ``source=peer`` the cell is acquired from a peer instead of built:
+    ``from_url`` is the peer's nix store URL (e.g. ``ssh://peer@host``) and
+    ``ipfs_path`` the store path to fetch. (Automatic discovery of that path will
+    come with cell manifests; for now the caller supplies it.)
     """
     if source is BootstrapSource.peer:
-        raise NotImplementedError(
-            "peer-based bootstrap is not implemented yet; the builtin cell can "
-            "currently only be acquired over the internet via nix"
+        if not (from_url and ipfs_path):
+            raise ValueError(
+                "peer bootstrap needs from_url (the peer's nix store URL) and "
+                "ipfs_path (the store path to fetch)"
+            )
+        return _bootstrap_from_peer(
+            factory, workdir=workdir, from_url=from_url, ipfs_path=ipfs_path
         )
     # TODO: when source is `auto`, detect connectivity and fall back to peers
     # when the internet is unavailable. For now `auto` always uses the internet.
     resolved = BootstrapSource.internet
 
     builtins = factory.get(DesmataBuiltins)
-
-    probe = workdir / "desmata-bootstrap-probe"
-    probe.write_text("desmata")
-    probe_cid = builtins.ipfs.get_hash(probe)
+    probe_cid = _probe(workdir, builtins.ipfs)
 
     ipfs = builtins.closure.ipfs
     return BootstrapResult(
