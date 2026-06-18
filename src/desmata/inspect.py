@@ -23,12 +23,14 @@ from pathlib import Path
 from desmata.builtins.cell import DesmataBuiltins, Tools
 from desmata.interface import Cell, Dependency
 from desmata.nix import Nix
+from desmata.samples.greeter.cell import GreeterCell
 
 
 def known_cells() -> dict[str, type[Cell]]:
-    """Cells addressable by name on the CLI. Today only the builtin cell exists;
-    user-defined cells will register here once they're loadable."""
-    return {"builtins": DesmataBuiltins}
+    """Cells addressable by name on the CLI. The builtin cell plus any sample
+    cells shipped with desmata; user-defined cells will register here once
+    they're loadable by hash."""
+    return {"builtins": DesmataBuiltins, "greeter": GreeterCell}
 
 
 def cell_tools(cell: Cell) -> list[tuple[str, Dependency]]:

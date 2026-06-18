@@ -49,9 +49,11 @@ class Nix(Tool):
     def build(
         self, output_name: str
     ) -> tuple[Path, list[NixPathInfo]]:
+        # ^out selects the main output: some packages install several (e.g.
+        # cowsay realizes out + man), and we want the one with the program.
         path_str = self(
                     "build",
-                    f".#{output_name}",
+                    f".#{output_name}^out",
                     "--print-out-paths",
                     "--no-link",
                 ).strip()
