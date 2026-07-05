@@ -8,6 +8,8 @@ from typing import NewType, Protocol, TypeAlias, runtime_checkable
 
 from sqlalchemy.engine import Engine
 
+from desmata.content import ContentBackend, Hash
+
 class LogSubject(StrEnum):
     proc = auto()
     msg = auto()
@@ -32,13 +34,15 @@ LogMatcher: TypeAlias = Callable[[...], bool]
 LogCallback: TypeAlias = Callable[[...], None]
 
 
-# later on these will have different implementations so they can be made
-# to appear differently when shown to the user.
+# All content addresses are a desmata.content.Hash -- backend-tagged, so a
+# hash always knows how to resolve itself. These NewTypes distinguish *what*
+# was hashed (a path, a dependency, a nucleus, a whole cell) so that treating
+# one like another is caught by the type checker.
 
-PathHash = NewType("PathHash", str)
-DependencyHash = NewType("DependencyHash", str)
-NucleusHash = NewType("NucleusHash", str)
-CellHash = NewType("CellHash", str)
+PathHash = NewType("PathHash", Hash)
+DependencyHash = NewType("DependencyHash", Hash)
+NucleusHash = NewType("NucleusHash", Hash)
+CellHash = NewType("CellHash", Hash)
 
 # distinguish these (despite them being builtin types)
 # so that treating one like the other is caught by the type checker
@@ -46,10 +50,6 @@ CellHash = NewType("CellHash", str)
 DependencyId = NewType("DependencyId", str)
 InternalPath = NewType("InternalPath", Path) # somewhere that desmata controls, like ~/.desmata/data
 ExternalPath = NewType("ExternalPath", Path) # elsewhere in the system, like /nix/store
-
-class PathHasher(Protocol):
-    def get_hash(self, dir: Path) -> str:
-        raise NotImplementedError()
 
 @dataclass
 class CellHashes:
@@ -132,10 +132,10 @@ class CellContext(Protocol):
         raise NotImplementedError()
 
     def internalize_ids_hashes(
-        self, 
-        *, 
+        self,
+        *,
         proto_dep: ProtoDependency,
         id_getter: IdGetter,
-        path_hasher: PathHasher,
-    ) -> tuple[InternalPath, InternalPath]:
+        hasher: ContentBackend,
+    ) -> tuple[DependencyId, DependencyHash]:
         raise NotImplementedError()

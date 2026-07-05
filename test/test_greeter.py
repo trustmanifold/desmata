@@ -18,7 +18,8 @@ def test_greeter_cell_builds_and_runs_cowsay(components: Injector):
     assert cell.closure.local_name == "greeter"
     # the managed dependency was built and internalized
     assert "cowsay" in cell.closure.cowsay.id
-    assert cell.closure.cowsay.hash.startswith("Qm")
+    assert cell.closure.cowsay.hash.digest.startswith("Qm")
+    assert str(cell.closure.cowsay.hash).startswith("dsm:ipfs:")
 
     # and it actually runs: the cow says what we asked
     out = cell.greet("desmata")

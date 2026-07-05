@@ -20,8 +20,11 @@ import sys
 from pathlib import Path
 
 from desmata.builtins.cell import Tools
+from desmata.content import Hash
+from desmata.exceptions import UnknownBackendException
 from desmata.higher_protocols import CellFactory
 from desmata.interface import NUCLEUS, Cell
+from desmata.lower_protocols import CellHash, NucleusHash
 
 # NUCLEUS (the stable, defining files, imported from interface) is hashed and
 # shared; the membrane is everything else in the cell directory (config/glue you
@@ -75,41 +78,47 @@ def _nucleus_manifest(ipfs: Tools.IPFS, cell_dir: Path) -> tuple[str, dict]:
     return _manifest(ipfs, "nucleus", nucleus_files(Path(cell_dir)))
 
 
-def nucleus_hash(ipfs: Tools.IPFS, cell_dir: Path) -> str:
+def nucleus_hash(ipfs: Tools.IPFS, cell_dir: Path) -> NucleusHash:
     """The content address of a cell's nucleus (deterministic, and invariant to
     membrane changes -- forking the config doesn't change it)."""
     cid, _ = _nucleus_manifest(ipfs, Path(cell_dir))
-    return cid
+    return NucleusHash(Hash(backend=ipfs.backend, digest=cid))
 
 
-def cell_hash(ipfs: Tools.IPFS, cell_dir: Path) -> str:
+def cell_hash(ipfs: Tools.IPFS, cell_dir: Path) -> CellHash:
     """The content address of a *whole* cell: nucleus + membrane. Two cells with
     the same nucleus but different membranes share a :func:`nucleus_hash` but
     differ here -- which is how you find sibling cells and tell them apart."""
     require_nucleus(cell_dir)
     files = nucleus_files(Path(cell_dir)) + membrane_files(cell_dir)
     cid, _ = _manifest(ipfs, "cell", files)
-    return cid
+    return CellHash(Hash(backend=ipfs.backend, digest=cid))
+
+
+def _require_handled(ipfs: Tools.IPFS, hash: Hash) -> None:
+    if not ipfs.can_handle(hash):
+        raise UnknownBackendException(f"this {ipfs.backend} repo cannot resolve {hash}")
 
 
 def pack_cell(
     ipfs: Tools.IPFS, cell_dir: Path, *, workdir: Path
-) -> tuple[str, Path]:
-    """Package a cell's nucleus into a CAR. Returns ``(nucleus_cid, car_path)``;
+) -> tuple[NucleusHash, Path]:
+    """Package a cell's nucleus into a CAR. Returns ``(nucleus_hash, car_path)``;
     ``dag export`` of the manifest pulls in every nucleus file's blocks."""
     cid, _ = _nucleus_manifest(ipfs, Path(cell_dir))
     car = workdir / f"{cid}.car"
     ipfs.dag_export(cid, dest=car)
-    return cid, car
+    return NucleusHash(Hash(backend=ipfs.backend, digest=cid)), car
 
 
 def unpack_cell(
-    ipfs: Tools.IPFS, car: Path, cid: str, into: Path
+    ipfs: Tools.IPFS, car: Path, hash: Hash, into: Path
 ) -> list[str]:
     """Reconstruct a cell's nucleus from a CAR into ``into``. Returns the file
     names written (the inverse of :func:`pack_cell`)."""
+    _require_handled(ipfs, hash)
     ipfs.dag_import(car)
-    manifest = ipfs.dag_get(cid)
+    manifest = ipfs.dag_get(hash.digest)
     into = Path(into)
     into.mkdir(parents=True, exist_ok=True)
     names: list[str] = []
@@ -144,7 +153,7 @@ def load_cell_class(cell_dir: Path) -> type[Cell]:
 def from_hash(
     ipfs: Tools.IPFS,
     factory: CellFactory,
-    cid: str,
+    hash: Hash,
     car: Path,
     *,
     into: Path,
@@ -155,18 +164,18 @@ def from_hash(
 
     This is the "call a cell by its hash" loop, locally: the ``car`` is the
     nucleus bundle (produced by :func:`pack_cell`); fetching it from a peer by
-    ``cid`` reuses the ipfs/ssh transport. The README's eventual
-    ``from_hash("Qm…", interface=...)`` is this with discovery + an interface
-    check on top."""
-    unpack_cell(ipfs, car, cid, into)
+    hash reuses the ipfs/ssh transport. The README's eventual
+    ``from_hash("dsm:ipfs:Qm…", interface=...)`` is this with discovery + an
+    interface check on top."""
+    unpack_cell(ipfs, car, hash, into)
     require_nucleus(into)  # a reconstructed bundle must be a valid cell
     cell_class = load_cell_class(Path(into))
     return factory.get(cell_class)
 
 
-def publish_cell(ipfs: Tools.IPFS, cell_dir: Path) -> str:
+def publish_cell(ipfs: Tools.IPFS, cell_dir: Path) -> NucleusHash:
     """Store a cell's nucleus in ``ipfs`` (so peers can fetch it by hash) and
-    return its content address -- the cid a peer passes to :func:`from_peer`."""
+    return its content address -- the hash a peer passes to :func:`from_peer`."""
     return nucleus_hash(ipfs, Path(cell_dir))
 
 
@@ -174,18 +183,19 @@ def from_peer(
     peer_ipfs: Tools.IPFS,
     ipfs: Tools.IPFS,
     factory: CellFactory,
-    cid: str,
+    hash: Hash,
     *,
     into: Path,
     workdir: Path,
 ) -> Cell:
     """Fetch a cell from a peer **by its hash alone** and run it: the peer serves
-    the nucleus bundle for ``cid`` (``peer_ipfs``), this node imports it, then
+    the nucleus bundle for ``hash`` (``peer_ipfs``), this node imports it, then
     reconstructs and builds the cell. No prior copy of the cell is needed -- only
     the hash and a reference to a peer that has it.
 
     Here ``peer_ipfs`` is the peer's ipfs repo (two repos on one host in tests);
     over a network it is the same call against a remote/ssh-wrapped ipfs."""
-    car = Path(workdir) / f"{cid}.car"
-    peer_ipfs.dag_export(cid, dest=car)
-    return from_hash(ipfs, factory, cid, car, into=into)
+    _require_handled(peer_ipfs, hash)
+    car = Path(workdir) / f"{hash.digest}.car"
+    peer_ipfs.dag_export(hash.digest, dest=car)
+    return from_hash(ipfs, factory, hash, car, into=into)

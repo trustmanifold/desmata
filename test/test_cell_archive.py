@@ -21,7 +21,8 @@ def test_pack_then_unpack_cell_nucleus_across_peers(
     ipfs_a = builtins.ipfs
     ipfs_a.init()
     cid, car = pack_cell(ipfs_a, cell_dir, workdir=tmp_path)
-    assert cid.startswith("bafy")            # CIDv1 dag-cbor manifest
+    assert cid.digest.startswith("bafy")     # CIDv1 dag-cbor manifest
+    assert str(cid).startswith("dsm:ipfs:")  # self-describing string form
     assert nucleus_hash(ipfs_a, cell_dir) == cid  # deterministic
 
     # peer B reconstructs it from the CAR alone

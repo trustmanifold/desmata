@@ -40,7 +40,8 @@ def test_ipfs_dependency_resolves_to_real_store_path(builtins: DesmataBuiltins):
     assert (root / "bin" / "ipfs").exists()
     # id is derived from the store path; hash is an ipfs CID
     assert ipfs.id == Dependency.get_id(root)
-    assert ipfs.hash.startswith("Qm")
+    assert ipfs.hash.digest.startswith("Qm")
+    assert str(ipfs.hash).startswith("dsm:ipfs:")
 
 
 def test_ipfs_hash_is_deterministic(builtins: DesmataBuiltins, tmp_path: Path):

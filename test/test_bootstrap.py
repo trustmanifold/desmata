@@ -32,8 +32,8 @@ def test_bootstrap_builds_and_uses_builtin_cell(tmp_path):
     # auto resolves to the internet path until peer transport exists
     assert result.source is BootstrapSource.internet
     assert result.cell_local_name == "builtins"
-    # ipfs built and produced content addresses
-    assert result.ipfs_dep_hash.startswith("Qm")
+    # ipfs built and produced content addresses (self-describing string form)
+    assert result.ipfs_dep_hash.startswith("dsm:ipfs:Qm")
     assert result.probe_cid.startswith("Qm")
 
 

@@ -14,6 +14,7 @@ from desmata.builtins.cell import Deps as DesmataBuiltinDeps
 from desmata.builtins.cell import DesmataBuiltins
 from desmata.builtins.cell import Tools as DesmataBuiltinTools
 from desmata.cell_utils import get_nix
+from desmata.content import BackendRegistry, ContentBackend
 from desmata.exceptions import BadCellClassException
 from desmata.fs import create_hard_links
 from desmata.higher_protocols import CellFactory
@@ -22,13 +23,14 @@ from desmata.lower_protocols import (
     Caller,
     CellContext,
     DBFactory,
+    DependencyHash,
+    DependencyId,
     EnvFilter,
     EnvVars,
     ExternalPath,
     IdGetter,
     InternalPath,
     Loggers,
-    PathHasher,
     ProtoDependency,
     UserspaceFiles,
 )
@@ -126,32 +128,32 @@ class BasicContext(CellContext):
             return None
             
     def internalize_ids_hashes(
-        self, 
-        *, 
+        self,
+        *,
         proto_dep: ProtoDependency,
         id_getter: IdGetter,
-        path_hasher: PathHasher,
-    ) -> tuple[str, str]:
+        hasher: ContentBackend,
+    ) -> tuple[DependencyId, DependencyHash]:
         """
         Internalizes a dependency from an external path to the desmata-controlled storage.
         Creates both id-based and hash-based references for the dependency.
-        Returns the ID and hash as strings.
+        Returns the ID and the content address.
         """
 
         # Get dependency ID and prepare paths
         dep_id = id_getter(proto_dep.target)
         id_path = self._userspace.deps_by_id / dep_id
-        
+
         # If the id_path already exists, we just need to ensure the hash path exists
         if id_path.exists():
-            hash_val = path_hasher.get_hash(id_path)
-            hash_path = self._userspace.deps_by_hash / hash_val
-            
+            hash_val = hasher.hash_path(id_path)
+            hash_path = self._userspace.deps_by_hash / hash_val.dirname
+
             # Create the hash path if it doesn't exist
             if not hash_path.exists():
                 create_hard_links(id_path, hash_path)
-            
-            return dep_id, hash_val
+
+            return DependencyId(dep_id), DependencyHash(hash_val)
         
         # Create the id directory
         id_path.mkdir(parents=True, exist_ok=True)
@@ -176,14 +178,14 @@ class BasicContext(CellContext):
                 shutil.copy2(target_path, id_path / target_path.name)
         
         # Create the hash-based path
-        hash_val = path_hasher.get_hash(id_path)
-        hash_path = self._userspace.deps_by_hash / hash_val
+        hash_val = hasher.hash_path(id_path)
+        hash_path = self._userspace.deps_by_hash / hash_val.dirname
         
         # Create hard links from id_path to hash_path
         if not hash_path.exists():
             create_hard_links(id_path, hash_path)
-                
-        return dep_id, hash_val
+
+        return DependencyId(dep_id), DependencyHash(hash_val)
 
     def get_env_filter(
         self,
@@ -221,6 +223,9 @@ class DefaultCellFactory(CellFactory):
         self.log = log
         self.userspace = userspace
         self.db_factory = db_factory
+        # every content backend this factory has built, keyed by Backend --
+        # the dispatch point for resolving a Hash to something that can serve it
+        self.backends = BackendRegistry()
 
     @property
     def engine(self) -> Engine:
@@ -289,8 +294,8 @@ class DefaultCellFactory(CellFactory):
         )
         self.log.msg.debug(f"CONTEXT, {context.__dict__}")
 
-        # get a hasher
-        hasher: PathHasher
+        # get a content backend to hash with (ipfs is the only one so far)
+        hasher: ContentBackend
         ipfs_dep: DesmataBuiltinDeps.IPFS
         if CellType is DesmataBuiltins:
             ipfs_dep = DesmataBuiltinDeps.IPFS.build_or_get(context)
@@ -299,6 +304,7 @@ class DefaultCellFactory(CellFactory):
             builtins = self.get(DesmataBuiltins)
             hasher = builtins.ipfs
             ipfs_dep = builtins.closure.ipfs
+        self.backends.register(hasher)
 
         # populate the closure
         deps: dict[str, Dependency] = {}
@@ -315,7 +321,7 @@ class DefaultCellFactory(CellFactory):
                 dep = AttrType.build_or_get(context, hasher=hasher)
 
             # populate dep.root and dep.id based on dep.root
-            dep.hash = hasher.get_hash(dep.root)
+            dep.hash = DependencyHash(hasher.hash_path(dep.root))
             dep.id = dep.get_id(dep.root)
             deps[attr_name] = dep
 

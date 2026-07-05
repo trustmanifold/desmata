@@ -2,6 +2,8 @@ import json
 from pathlib import Path
 
 from desmata.cell_utils import get_nix
+from desmata.content import Backend, Hash
+from desmata.exceptions import UnknownBackendException
 from desmata.higher_protocols import (
     CellHash,
     CellHashes,
@@ -11,7 +13,7 @@ from desmata.higher_protocols import (
     Storage,
 )
 from desmata.interface import Cell, Closure, Dependency
-from desmata.lower_protocols import PathHasher, CellContext, ProtoDependency
+from desmata.lower_protocols import CellContext, ProtoDependency
 from desmata.tool import Tool
 
 
@@ -28,7 +30,17 @@ class Tools:
                 env_filter=context.get_env_filter(exec_path=sqlite_path_entry),
             )
 
-    class IPFS(Tool, PathHasher):
+    class IPFS(Tool):
+        """The ipfs/kubo CLI as a desmata tool.
+
+        Implements the ``ContentBackend`` protocol (see :mod:`desmata.content`):
+        the methods under "ContentBackend" below speak backend-tagged
+        :class:`Hash` values, while the rest of the surface (``add``, ``dag_*``,
+        ``get``, ...) is the backend-native layer that traffics in raw CIDs.
+        """
+
+        backend = Backend.ipfs
+
         def __init__(self, root: Path, context: CellContext):
             loggers = context.loggers.specialize("ipfs")
             ipfs_path_entry = root / "bin"
@@ -49,6 +61,28 @@ class Tools:
             # Take the last hash, which will be the toplevel dir
             # (or just the file if the target wasn't a dir)
             return output.splitlines()[-1].split()[1]
+
+        # --- ContentBackend --------------------------------------------------
+        # the backend-agnostic surface: desmata's protocols (hashing a
+        # dependency, publishing/fetching content) speak Hash, not raw CIDs.
+
+        def hash_path(self, path: Path) -> Hash:
+            """Content-address ``path`` without storing it (offline, deterministic)."""
+            return Hash(backend=self.backend, digest=self.get_hash(path))
+
+        def publish(self, path: Path) -> Hash:
+            """Store ``path`` in this repo and return its content address."""
+            cid = self.add(path, recursive=path.is_dir())
+            return Hash(backend=self.backend, digest=cid)
+
+        def fetch(self, hash: Hash, into: Path) -> None:
+            """Materialize the content addressed by ``hash`` at ``into``."""
+            if not self.can_handle(hash):
+                raise UnknownBackendException(f"ipfs cannot resolve {hash}")
+            self.get(hash.digest, into)
+
+        def can_handle(self, hash: Hash) -> bool:
+            return hash.backend is Backend.ipfs
 
         # --- content-addressed store/move -----------------------------------
         # get_hash above only *computes* a CID (``--only-hash``); the methods
@@ -168,7 +202,7 @@ class Deps:
                 dep_id, dep_hash = context.internalize_ids_hashes(
                     proto_dep=proto_dep,
                     id_getter=nix.get_id,
-                    path_hasher=ipfs_tool,
+                    hasher=ipfs_tool,
                 )
 
                 # nix.dep_dags provides leaves first and works towards the root,

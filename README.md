@@ -16,7 +16,7 @@ existing tools: [Nix](https://nixos.org) for reproducible builds, and
 >
 > What's *not* built is mostly the friendly surface and the trust layer: the
 > high-level `dsm publish`/`clone`/`peers` workflow, single-argument
-> `from_hash("Qm…")` with automatic discovery, and gossiped build/run
+> `from_hash("dsm:ipfs:Qm…")` with automatic discovery, and gossiped build/run
 > attestations. This README says which is which — see
 > [What works today](#what-works-today) and
 > [What doesn't work yet](#what-doesnt-work-yet).
@@ -108,7 +108,7 @@ path works:
 $ dsm bootstrap
 Bootstrapped 'builtins' via internet.
   ipfs dependency   : bilkygayml...-kubo-0.28.0
-  builtin cell hash : Qm…              ← its content address
+  builtin cell hash : dsm:ipfs:Qm…     ← its content address (self-describing: backend + digest)
   probe "desmata"   → Qm…              ← produced by the managed ipfs
 ```
 
@@ -150,10 +150,15 @@ the foundation of the "call code by hash" idea:
 ```python
 from desmata.get import publish_cell, from_peer
 
-cid = publish_cell(peer_ipfs, cell_dir)          # peer A: store the cell's nucleus
-cell = from_peer(peer_ipfs, my_ipfs, factory, cid, into=…, workdir=…)  # peer B: fetch by hash + build
+hash = publish_cell(peer_ipfs, cell_dir)         # peer A: store the cell's nucleus
+cell = from_peer(peer_ipfs, my_ipfs, factory, hash, into=…, workdir=…)  # peer B: fetch by hash + build
 cell.greet("hello")                              # …and run it
 ```
+
+Hashes are **self-describing**: `str(hash)` is `dsm:<backend>:<digest>` (today
+always `dsm:ipfs:<cid>`), so anyone who encounters one can tell which backend
+resolves it — the seam a second content backend (e.g. iroh) plugs into. See
+`desmata/content.py` and `agent_primers/iroh.md`.
 
 **Provenance capture.** Every build records, per store path, a canonical
 `{path, narHash, narSize, references, deriver}` — projectable to a Trustix
@@ -167,7 +172,7 @@ $ dsm clean builtins       # clear one cell's home (any cell type)
 $ dsm clean --all
 ```
 
-There are **54 fast tests** (`pytest`) plus the containerized partition e2e
+There are **66 fast tests** (`pytest`) plus the containerized partition e2e
 (`pytest e2e`).
 
 ## What doesn't work yet
@@ -178,8 +183,8 @@ Real goals with partial or no implementation:
   don't exist (`dsm ls` is a placeholder). The Alice/Bob workflow below is doable
   with the building blocks (`publish_cell`, `from_peer`, the ssh/ipfs transport)
   but isn't wrapped into commands.
-- **`from_hash("Qm…", interface=…)` as a one-liner.** Resolving a cell *by hash
-  alone* works (`from_peer(peer, cid)`), but the polished single-argument form —
+- **`from_hash("dsm:ipfs:Qm…", interface=…)` as a one-liner.** Resolving a cell
+  *by hash alone* works (`from_peer(peer, hash)`), but the polished single-argument form —
   automatic peer discovery (so `--ipfs-path` isn't needed) and an `interface=`
   conformance check — isn't built.
 - **A trust layer.** Desmata *captures* Trustix-shaped provenance, but gossiping
@@ -206,10 +211,10 @@ argument, automatic discovery, and an interface check — is the remaining ergon
 target:
 
 ```python
-# TARGET API — discovery + interface check not built; from_peer(peer, cid) works
+# TARGET API — discovery + interface check not built; from_peer(peer, hash) works
 from desmata.get import from_hash
 
-adder = from_hash("Qm…", interface=Arithmetic)
+adder = from_hash("dsm:ipfs:Qm…", interface=Arithmetic)
 assert adder.add(1, 1) == 2
 ```
 

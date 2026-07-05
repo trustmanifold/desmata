@@ -13,6 +13,7 @@ Dependencies are managed with uv and packaged for Nix via uv2nix.
 - **Naming**: CamelCase for classes, snake_case for functions/variables, UPPER_SNAKE_CASE for constants
 - **Types**: Use type annotations throughout; Pydantic for models
 - **Architecture**: Protocols in higher/lower_protocols.py, dependency injection with injector
+- **Content addressing**: All hashes are the self-describing `Hash` model from content.py (`dsm:<backend>:<digest>`, IPFS-only today); backends implement the `ContentBackend` protocol and dispatch goes through `BackendRegistry` — don't pass bare CID strings across module boundaries
 - **Error handling**: Custom exceptions in exceptions.py
 - **Documentation**: Use reStructuredText format docstrings
 

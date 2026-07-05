@@ -213,9 +213,11 @@ def construct_builtins_from_path(
         userspace=factory.userspace,
         loggers=factory.log,
     )
+    # hash=None: the closure arrived by store path; its content address is
+    # computed once the wrapped ipfs is usable (it is desmata's hasher).
     ipfs_dep = Deps.IPFS(
         id=Nix.get_id(Path(ipfs_path)),
-        hash="",
+        hash=None,
         root=Path(ipfs_path),
         immediate_dependencies={},
     )
@@ -285,6 +287,6 @@ def bootstrap_builtins(
         source=resolved,
         cell_local_name=builtins.closure.local_name,
         ipfs_dep_id=ipfs.id,
-        ipfs_dep_hash=ipfs.hash,
+        ipfs_dep_hash=str(ipfs.hash),
         probe_cid=probe_cid,
     )

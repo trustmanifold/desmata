@@ -1,7 +1,16 @@
 # Primer: Adding iroh as a second content backend
 
 **Status:** speculative design note. Desmata targets **IPFS first**. Read this when
-it's time to add iroh support. Nothing here is implemented yet.
+it's time to add iroh support.
+
+**Update (2026-07-02):** step 1 of §8 (the IPFS-only refactor) is **done** — see
+`src/desmata/content.py`. Hashes are now a backend-tagged `Hash` model with the
+`dsm:<backend>:<digest>` string form (§4 option 3 + 1, as recommended);
+`PathHasher` was generalized to `ContentBackend` (hash_path/publish/fetch/
+can_handle) with `Tools.IPFS` as the sole implementation; a `Backend` enum and
+`BackendRegistry` exist (registered by `DefaultCellFactory`). §3 reflects the
+new state. Steps 2-6 (mapping table, Q1/Q2 prototype, `Deps.Iroh`,
+fault-tolerant resolve, CLI knobs) remain.
 
 **Audience:** an agent (or human) picking up the "add iroh" task later. It assumes
 familiarity with the current code but re-states the relevant seams so you don't have
@@ -58,21 +67,23 @@ Backend choice on **publish** is user preference (config). Backend choice on
 
 ## 3. Where IPFS is wired in today (the seams to generalize)
 
-These are the exact touch-points. Adding iroh = turning each hard-coded `IPFS` into a
-dispatch over a backend abstraction.
+These are the exact touch-points. *(Updated 2026-07-02 after the step-1 refactor:
+the abstraction now exists; adding iroh = writing a second `ContentBackend` and
+registering it.)*
 
 | Concern | Current symbol | File |
 |---|---|---|
-| Hash a path → string | `PathHasher.get_hash(dir) -> str` | `lower_protocols.py:50` |
-| IPFS hasher impl | `Tools.IPFS.get_hash` (`ipfs add -r --only-hash`) | `builtins/cell.py:42` |
-| IPFS as a built dependency | `Deps.IPFS.build_or_get` (`nix.build("ipfs")`, `ipfs init`) | `builtins/cell.py:54` |
-| Hasher selection (hard-coded IPFS) | `DefaultCellFactory.get(...)` picks `DesmataBuiltinTools.IPFS` | `cell_factory.py:289-296` |
-| Hash type (bare string!) | `PathHash`, `DependencyHash`, `CellHash`, `NucleusHash` = `NewType(str)` | `lower_protocols.py:38-41` |
-| Transport (unbuilt) | `Storage.pack_cell` / `unpack_cell` (stubs) | `higher_protocols.py` + `builtins/cell.py:141` |
+| Hash a path → Hash | `ContentBackend.hash_path(path) -> Hash` (also `publish`/`fetch`/`can_handle`) | `content.py` |
+| IPFS backend impl | `Tools.IPFS` implements `ContentBackend`; raw-CID layer (`get_hash`, `add`, `dag_*`) beneath it | `builtins/cell.py` |
+| IPFS as a built dependency | `Deps.IPFS.build_or_get` (`nix.build("ipfs")`, `ipfs init`) | `builtins/cell.py` |
+| Backend selection + dispatch | `DefaultCellFactory.get(...)` builds `Tools.IPFS` and registers it in `self.backends: BackendRegistry` | `cell_factory.py` |
+| Hash type (self-describing) | `Hash(backend, digest)`, string form `dsm:<backend>:<digest>`; `PathHash` etc. = `NewType(Hash)` | `content.py`, `lower_protocols.py` |
+| Cell/closure transport | `pack_cell`/`unpack_cell`/`from_hash`/`from_peer` and `export_closure_to_car`/`import_car_to_store` — Hash-typed API, IPLD/CAR internals still IPFS-specific (correctly so, per §6) | `cell_archive.py`, `transport.py` |
 
-**The single most important current limitation:** hashes are **bare strings with no
-scheme tag**. `PathHash = NewType("PathHash", str)` carries no information about which
-backend produced it. The whole multi-backend story depends on fixing this first.
+**The former "single most important limitation" — bare-string hashes — is fixed.**
+Hashes carry their backend; what remains hard-coded is that `cell_archive`/`transport`
+take a concrete `Tools.IPFS` (their manifest/CAR internals are per-backend anyway) and
+that only one backend exists to dispatch to.
 
 ---
 
@@ -102,6 +113,10 @@ Reserve (2) as a future-research item if public-IPFS interop ever becomes a goal
 Whatever you pick, `PathHash`/`CellHash`/etc. stop being `NewType(str)` and become this
 type, and every `: str` return in the hasher protocol changes with them. Do this change
 **while still IPFS-only** — it's the cleanest moment, and it de-risks the iroh add.
+
+*(Done, 2026-07-02: option 3 with option 1 as its string form, exactly as recommended —
+`content.py`'s `Hash(backend, digest)`. The `structure: TreeKind` field was omitted;
+add it when a second tree representation actually exists.)*
 
 ---
 
@@ -215,10 +230,10 @@ the network currently permits. Make that a config knob, not a mandate.
 
 ## 8. Suggested order of work (when the time comes)
 
-1. **(IPFS-only refactor, do early)** Replace bare-string hash `NewType`s with a
-   `Hash` model + string form (§4). Generalize `PathHasher` → `ContentBackend` (§6),
-   keeping IPFS as the sole impl. Introduce a `Backend` enum and a registry/dispatch
-   even with one entry. This is all doable without iroh and de-risks it.
+1. **(IPFS-only refactor, do early) — DONE 2026-07-02.** Replace bare-string hash
+   `NewType`s with a `Hash` model + string form (§4). Generalize `PathHasher` →
+   `ContentBackend` (§6), keeping IPFS as the sole impl. Introduce a `Backend` enum
+   and a registry/dispatch even with one entry. See `content.py` and `test_content.py`.
 2. Add the cross-backend mapping table to the SQLite schema (unused until backend #2).
 3. Resolve Q1/Q2 via a throwaway prototype (§7.1).
 4. Implement `Deps.Iroh` (Nix-provisioned) + an iroh `ContentBackend` adapter, hashing

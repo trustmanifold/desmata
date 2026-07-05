@@ -30,6 +30,8 @@ agent_primers/trustix-interop.md §8.
 from pathlib import Path
 
 from desmata.builtins.cell import Tools
+from desmata.content import Hash
+from desmata.exceptions import UnknownBackendException
 from desmata.nix import Nix
 
 
@@ -91,9 +93,9 @@ def _topo_order(nix: Nix, root_path: str) -> list[str]:
 
 def export_closure_to_car(
     nix: Nix, ipfs: Tools.IPFS, path: str, *, workdir: Path
-) -> tuple[str, Path]:
+) -> tuple[Hash, Path]:
     """Peer A: package ``path``'s closure as per-path NARs under an IPLD
-    manifest, exported to a single CAR. Returns ``(manifest_cid, car_path)``.
+    manifest, exported to a single CAR. Returns ``(manifest_hash, car_path)``.
 
     The manifest's ``paths`` are in dependency order; each links to its NAR's CID,
     so a store path shared with another closure reuses that CID (dedup).
@@ -108,14 +110,14 @@ def export_closure_to_car(
     manifest_cid = ipfs.dag_put({"root": path, "paths": entries})
     car = workdir / f"{manifest_cid}.car"
     ipfs.dag_export(manifest_cid, dest=car)
-    return manifest_cid, car
+    return Hash(backend=ipfs.backend, digest=manifest_cid), car
 
 
 def import_car_to_store(
     nix: Nix,
     ipfs: Tools.IPFS,
     car: Path,
-    manifest_cid: str,
+    manifest: Hash,
     *,
     workdir: Path,
     store: Path | None = None,
@@ -124,11 +126,13 @@ def import_car_to_store(
     path's NAR in manifest (dependency) order into the nix store (``store``
     selects an alternate local store root). Returns the store paths reconstructed.
     """
+    if not ipfs.can_handle(manifest):
+        raise UnknownBackendException(f"this {ipfs.backend} repo cannot resolve {manifest}")
     ipfs.dag_import(car)
-    manifest = ipfs.dag_get(manifest_cid)
+    manifest_doc = ipfs.dag_get(manifest.digest)
 
     imported: list[str] = []
-    for index, entry in enumerate(manifest["paths"]):
+    for index, entry in enumerate(manifest_doc["paths"]):
         nar = workdir / f"{index}.nar"
         ipfs.get(entry["nar"]["/"], nar)
         imported.extend(nix.import_closure(nar, store=store))

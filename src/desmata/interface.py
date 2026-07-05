@@ -9,7 +9,9 @@ from desmata.lower_protocols import DependencyId, DependencyHash, InternalPath, 
 
 class Dependency(BaseModel, ABC):
     id: DependencyId
-    hash: DependencyHash
+    # None only transiently: a peer-bootstrapped dependency exists on disk
+    # before its content address has been computed.
+    hash: DependencyHash | None = None
     root: InternalPath
     immediate_dependencies: dict[DependencyId, 'Dependency']
 

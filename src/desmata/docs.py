@@ -19,7 +19,7 @@ $ desmata docs view
 import sys
 from pathlib import Path
 
-import click
+import typer
 from pdoc import pdoc
 
 import desmata
@@ -44,7 +44,7 @@ def generate(app: AppContext, out: Path | None = None):
         app.log.debug(f"is $PWD the root of a desmata repo? {checks}")
         if not all(checks.values()):
             # no, be cautious
-            if not click.confirm(f"This will create/overwrite {out.resolve()} continue?", default=True):
+            if not typer.confirm(f"This will create/overwrite {out.resolve()} continue?", default=True):
                 app.log.info("User Cancelled")
                 sys.exit(0)
         else:

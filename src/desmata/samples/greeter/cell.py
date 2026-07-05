@@ -12,8 +12,9 @@ Inspect it: `dsm inspect greeter cowsay {nix,ipfs,drv,provenance}`.
 from pathlib import Path
 
 from desmata.cell_utils import get_nix
+from desmata.content import ContentBackend
 from desmata.interface import Cell, Closure, Dependency
-from desmata.lower_protocols import CellContext, PathHasher
+from desmata.lower_protocols import CellContext, DependencyHash
 from desmata.tool import Tool
 
 
@@ -33,12 +34,12 @@ class Tools:
 class Deps:
     class Cowsay(Dependency):
         @staticmethod
-        def build_or_get(context: CellContext, hasher: PathHasher) -> "Deps.Cowsay":
+        def build_or_get(context: CellContext, hasher: ContentBackend) -> "Deps.Cowsay":
             nix = get_nix(context)
             root, _ = nix.build("cowsay")
             return Deps.Cowsay(
                 id=Dependency.get_id(root),
-                hash=hasher.get_hash(root),
+                hash=DependencyHash(hasher.hash_path(root)),
                 root=root,
                 immediate_dependencies={},
             )

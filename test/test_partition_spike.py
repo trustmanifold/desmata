@@ -49,7 +49,7 @@ def test_closure_round_trips_between_peers_offline(
 
     # peer A packages the closure into a content-addressed CAR (IPLD manifest)
     manifest_cid, car = export_closure_to_car(nix, ipfs_a, path, workdir=a_work)
-    assert manifest_cid.startswith("bafy")  # CIDv1 dag-cbor manifest
+    assert manifest_cid.digest.startswith("bafy")  # CIDv1 dag-cbor manifest
     assert car.exists()
 
     # peer B's store genuinely does not have the path yet
@@ -87,8 +87,8 @@ def test_transport_preserves_cross_closure_dedup(
     full_cid, _ = export_closure_to_car(nix, ipfs_a, kubo, workdir=full)
     tz_cid, _ = export_closure_to_car(nix, ipfs_a, tz, workdir=alone)
 
-    full_manifest = ipfs_a.dag_get(full_cid)
-    tz_manifest = ipfs_a.dag_get(tz_cid)
+    full_manifest = ipfs_a.dag_get(full_cid.digest)
+    tz_manifest = ipfs_a.dag_get(tz_cid.digest)
     cid_in_full = next(
         e["nar"]["/"] for e in full_manifest["paths"] if e["path"] == tz
     )
