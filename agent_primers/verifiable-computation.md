@@ -48,7 +48,9 @@ general case; let nix-build be one instance.
   Phase 2.
 - **The runner.** Nix is one runner (builds). Runtime needs others: containers,
   Wasm, or bioinformatics workflow engines (CWL/WDL/Nextflow/Snakemake). Keep the
-  runner abstract and named.
+  runner abstract and named. (The Wasm runner is now designed in its own right —
+  [lightweight-cells.md](./lightweight-cells.md) — as the invoker for cells that
+  pin a prebuilt component and run without nix.)
 - **Determinism (the hard part).** Nix sandboxes builds to *near*-reproducibility;
   arbitrary scientific tools often are not bit-reproducible (FP divergence across
   CPU/GPU, thread races, RNG, locale, tool drift). So each computation declares a

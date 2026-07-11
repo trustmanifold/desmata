@@ -1,10 +1,11 @@
 import contextlib
+import json
 import os
 import sys
 import tempfile
 from enum import Enum
 from pathlib import Path
-from typing import Optional
+from typing import List, Optional
 
 import typer
 
@@ -19,9 +20,19 @@ from desmata.bootstrap import (
     list_cells,
     userspace,
 )
-from desmata.builtins.cell import Tools
+from desmata.builtins.cell import DesmataBuiltins, Tools
+from desmata.cell_archive import (
+    InvalidCell,
+    publish_cell,
+    unpack_cell,
+    verify_artifacts,
+)
 from desmata.cell_factory import BasicContext
+from desmata.content import Hash
+from desmata.exceptions import ArtifactPinMismatch, CellUnavailable
+from desmata.invoke import build_invoker
 from desmata.cli.common import cli_logger
+from desmata.serve import DaemonFailed, serve_forever
 from desmata.fs import DesmataFiles
 from desmata.inspect import (
     cell_tools,
@@ -212,6 +223,146 @@ def bootstrap(
     typer.echo("Because everything is addressed by hash, this same cell can later be")
     typer.echo("reproduced -- or fetched from a peer when the internet is unavailable")
     typer.echo("(the peer path is not built yet: try `--source peer`).")
+
+
+@app.command()
+def publish(
+    cell_dir: Path = typer.Argument(
+        ..., help="the cell's directory (contains cell.py, flake.nix, flake.lock)"
+    ),
+    verbose: bool = typer.Option(False, "--verbose", "-v"),
+    home: Optional[Path] = typer.Option(
+        None, "--home", help="sandbox desmata's state under this directory instead of the XDG dirs"
+    ),
+):
+    """Content-address a cell and store it, pinned, in the local ipfs repo.
+
+    Prints the cell's hashes. Hand the cell hash to a peer: while `dsm serve`
+    is running here, their desmata can fetch and run the cell with nothing but
+    that hash -- no reference to this machine needed.
+    """
+    loggers = CliLoggers(verbose=verbose)
+    factory = cell_factory(loggers, root=home)
+    try:
+        with _quieted(verbose):
+            builtins = factory.get(DesmataBuiltins)
+            hashes = publish_cell(builtins.ipfs, cell_dir)
+    except InvalidCell as e:
+        typer.echo(f"not a cell: {e}")
+        raise typer.Exit(code=1)
+
+    typer.echo(f"Published {cell_dir}:")
+    typer.echo(f"  cell hash    : {hashes.cell_hash}")
+    typer.echo("      └ the whole cell (nucleus + membrane); share this to share the cell as-is")
+    typer.echo(f"  nucleus hash : {hashes.nucleus_hash}")
+    typer.echo("      └ just the stable core; shared by every fork that only edits the membrane")
+    typer.echo("")
+    typer.echo("Peers can fetch it by hash while `dsm serve` is running here.")
+
+
+@app.command()
+def serve(
+    verbose: bool = typer.Option(False, "--verbose", "-v"),
+    home: Optional[Path] = typer.Option(
+        None, "--home", help="sandbox desmata's state under this directory instead of the XDG dirs"
+    ),
+):
+    """Serve published cells to peers, and enable fetching cells by hash.
+
+    Runs the builtin cell's ipfs daemon in the foreground (^C to stop). While
+    it runs, cells published here (`dsm publish`) are discoverable and
+    fetchable by peers, and desmata here can fetch non-local cells from
+    whichever peer has them. Cells that are already local work without it.
+    """
+    loggers = CliLoggers(verbose=verbose)
+    factory = cell_factory(loggers, root=home)
+    with _quieted(verbose):
+        builtins = factory.get(DesmataBuiltins)
+
+    typer.echo(f"Serving cells from the ipfs repo at {builtins.ipfs.repo}")
+    try:
+        code = serve_forever(
+            builtins.ipfs,
+            on_ready=lambda: typer.echo(
+                "Daemon ready: published cells are now fetchable by hash. ^C to stop."
+            ),
+        )
+    except DaemonFailed as e:
+        typer.echo(f"serve failed: {e}")
+        raise typer.Exit(code=1)
+    if code != 0:
+        raise typer.Exit(code=code)
+
+
+@app.command()
+def call(
+    target: str = typer.Argument(
+        ..., help="a cell directory, or a cell hash (dsm:ipfs:...) to fetch"
+    ),
+    function: str = typer.Argument(..., help="the WIT function to invoke"),
+    args: List[str] = typer.Argument(
+        None, help="arguments, one JSON value each (e.g. '[104,105]' 0 '[]' 0)"
+    ),
+    artifact: Optional[str] = typer.Option(
+        None, "--artifact", help="which pinned artifact to invoke (defaults to "
+        "the cell's only one)",
+    ),
+    verbose: bool = typer.Option(False, "--verbose", "-v"),
+    home: Optional[Path] = typer.Option(
+        None, "--home", help="sandbox desmata's state under this directory instead of the XDG dirs"
+    ),
+):
+    """Call a function on a lightweight cell's wasm component.
+
+    The cell's artifact pins are verified before anything runs, and the
+    component executes sandboxed (no filesystem, no network, no env). Values
+    cross the boundary as JSON; the result is printed as JSON.
+    """
+    loggers = CliLoggers(verbose=verbose)
+    factory = cell_factory(loggers, root=home)
+
+    try:
+        parsed_args = [json.loads(a) for a in (args or [])]
+    except json.JSONDecodeError as e:
+        typer.echo(f"arguments must be JSON values: {e}")
+        raise typer.Exit(code=1)
+
+    with contextlib.ExitStack() as stack:
+        try:
+            with _quieted(verbose):
+                builtins = factory.get(DesmataBuiltins)
+                if target.startswith("dsm:"):
+                    cell_dir = Path(
+                        stack.enter_context(tempfile.TemporaryDirectory())
+                    ) / "cell"
+                    unpack_cell(builtins.ipfs, None, Hash.parse(target), cell_dir)
+                else:
+                    cell_dir = Path(target)
+                pins = verify_artifacts(builtins.ipfs, cell_dir)
+        except (ArtifactPinMismatch, CellUnavailable, InvalidCell) as e:
+            typer.echo(f"cannot call into {target}: {e}")
+            raise typer.Exit(code=1)
+
+        if artifact is None and len(pins) == 1:
+            artifact = next(iter(pins))
+        if artifact is None or artifact not in pins:
+            typer.echo(
+                f"pick an artifact with --artifact: {', '.join(sorted(pins)) or '(none pinned)'}"
+            )
+            raise typer.Exit(code=1)
+
+        with _quieted(verbose):
+            context = BasicContext(
+                name=cell_dir.name,
+                cell_dir=cell_dir,
+                userspace=factory.userspace,
+                loggers=loggers,
+            )
+            # the cell's own flake supplies the runner (nix build .#wasmtime)
+            invoker = build_invoker(context)
+            result = invoker.invoke(cell_dir / artifact, function, parsed_args)
+
+    typer.echo(json.dumps(result))
 
 
 def _human_size(num_bytes: int) -> str:

@@ -32,9 +32,14 @@ class Dependency(BaseModel, ABC):
 
 
 # The nucleus: a cell's stable, defining files -- hashed and shared. The membrane
-# is everything else in the cell directory (config/glue you fork). Enforcement and
-# hashing live in desmata.cell_archive; this is the canonical file list.
+# is everything else in the cell directory (the small, forkable part you audit).
+# NUCLEUS is the mandatory core; an author widens the nucleus with an optional
+# declaration file (NUCLEUS_DECLARATION: one relative path per line, itself part
+# of the nucleus when present -- the boundary lives inside the hash, so forks
+# can't disagree about where it sits). Enforcement and hashing live in
+# desmata.cell_archive. See agent_primers/nucleus-membrane.md.
 NUCLEUS: tuple[str, ...] = ("flake.nix", "flake.lock", "cell.py")
+NUCLEUS_DECLARATION = "nucleus"
 
 
 class Closure(BaseModel, ABC):
@@ -46,7 +51,9 @@ class Closure(BaseModel, ABC):
     hash: CellHash | None = None
     nucleus_hash: NucleusHash | None = None
 
-    # the nucleus file names (the membrane is "everything else in the cell dir")
+    # the mandatory nucleus file names (an author widens the set via the
+    # NUCLEUS_DECLARATION file, not here: reading a ClassVar means executing
+    # cell.py, and computing a hash must never run code)
     nucleus: ClassVar[tuple[str, ...]] = NUCLEUS
 
 

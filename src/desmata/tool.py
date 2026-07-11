@@ -221,6 +221,7 @@ class Tool:
         no_log: bool = False,
         no_stdout: bool = False,
         no_stdin: bool = False,
+        timeout: float | None = None,
         **kwargs: Any,
     ) -> CompletedCommand:
         logfunc = self.log.getChild(self.name).debug
@@ -259,7 +260,12 @@ class Tool:
         )
 
         # run it, provide stdin, get stdout
-        stdout, _ = process.communicate(input=stdin)
+        try:
+            stdout, _ = process.communicate(input=stdin, timeout=timeout)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.communicate()
+            raise
 
         # communicate results
         completed = CompletedCommand(stdout, exit_code=process.returncode)
@@ -281,6 +287,7 @@ class Tool:
         stdin: str | None = None,
         tolerate_err: bool = False,
         no_log: bool = False,
+        timeout: float | None = None,
         **kwargs: Any,
     ) -> str:
         """
@@ -292,8 +299,37 @@ class Tool:
             stdin=stdin,
             tolerate_err=tolerate_err,
             no_log=no_log,
+            timeout=timeout,
             **kwargs,
         ).stdout
+
+    def spawn(
+        self,
+        *args: str,
+        env_extras: EnvVars = {},
+        **kwargs: Any,
+    ) -> subprocess.Popen:
+        """
+        Start a long-running process (e.g. a daemon) and return it immediately.
+
+        Unlike :meth:`run`, this never waits: the caller owns the process's
+        lifecycle (readiness checks, shutdown). Output goes to stderr so the
+        process's chatter can't mix into a caller's stdout.
+        """
+        cmd = self._build_cmd(*args)
+        env = self._binary_env(env_extras)
+        popen_kwargs = self.get_popen_kwargs(**kwargs)
+        self.log.getChild(self.name).debug(
+            json.dumps({"spawning": {"cmd": cmd}})
+        )
+        return subprocess.Popen(
+            cmd,
+            env=env,
+            stdin=subprocess.DEVNULL,
+            stdout=sys.stderr,
+            stderr=sys.stderr,
+            **popen_kwargs,
+        )
 
     def _binary_env(self, env_extras: EnvVars) -> dict[str, str]:
         outer_env = dict(os.environ)

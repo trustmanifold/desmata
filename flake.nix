@@ -24,10 +24,25 @@
         nixpkgs.follows = "nixpkgs";
       };
     };
+
+    # the standalone example cell: not built here, just a pinned source
+    # fixture for the peer-to-peer tests (test/test_peer_discovery.py) --
+    # a cell authored outside this repo, published and fetched by hash
+    nushell-cell = {
+      url = "git+file:///Users/matt/src/nushell-cell";
+      flake = false;
+    };
+
+    # the lightweight example cell (artifact-pinned wasm component): the
+    # fixture for the wasm-invoker tests (test/test_gnize_cell.py)
+    gnize-cell = {
+      url = "git+file:///Users/matt/src/gnize-cell";
+      flake = false;
+    };
   };
 
   outputs =
-    { self, nixpkgs, flake-utils, pyproject-nix, uv2nix, pyproject-build-systems }:
+    { self, nixpkgs, flake-utils, pyproject-nix, uv2nix, pyproject-build-systems, nushell-cell, gnize-cell }:
     flake-utils.lib.eachDefaultSystem (system:
       let
         pkgs = import nixpkgs { inherit system; };
@@ -90,6 +105,10 @@
             UV_NO_SYNC = "1";
             UV_PYTHON = python.interpreter;
             UV_PYTHON_DOWNLOADS = "never";
+            # the pinned nushell-cell fixture for the peer-to-peer tests
+            NUSHELL_CELL_SRC = "${nushell-cell}";
+            # the pinned gnize-cell fixture for the wasm-invoker tests
+            GNIZE_CELL_SRC = "${gnize-cell}";
           };
           shellHook = ''
             export REPO_ROOT=$(pwd)

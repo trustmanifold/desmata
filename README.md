@@ -68,17 +68,23 @@ both by id and by content hash.
 
 ### Nucleus and membrane
 
-The files in a cell split into a **nucleus** (stable, defining: `flake.nix`,
-`flake.lock`, `cell.py`) and a **membrane** (the part you're encouraged to fork
-and republish: config, glue — everything else in the cell directory). The idea is
-that you find a nucleus you trust, pick a membrane that resembles your use case,
-and start from something that already runs rather than a blank slate.
+The files in a cell split into a **nucleus** (stable, widely-trusted, defining —
+the core `flake.nix`/`flake.lock`/`cell.py`, plus anything the author declares
+via an optional `nucleus` file) and a **membrane** (the part you're encouraged
+to fork and republish: config, glue, small auditable code — everything else in
+the cell directory). The idea is that you find a nucleus you trust, pick a
+membrane that resembles your use case, and start from something that already
+runs rather than a blank slate.
 
 This split is **enforced**: a cell's `nucleus_hash` is computed over the nucleus
 files only (so forking the membrane doesn't change it — that's how you find
 sibling cells), while `cell_hash` covers nucleus + membrane (so siblings are
 distinguishable), and a directory missing nucleus files is rejected as not a
-cell. See `desmata/cell_archive.py`.
+cell. The cell manifest embeds the nucleus manifest as an IPLD link, so a cell
+hash **structurally commits** to its nucleus hash — "this cell contains that
+nucleus, unchanged" is checkable with one `dag get` (`verify_has_nucleus`),
+which is what lets trust in many sibling cells stack onto their shared nucleus.
+See `desmata/cell_archive.py` and `agent_primers/nucleus-membrane.md`.
 
 ## What works today
 
@@ -143,17 +149,25 @@ showing what a user cell looks like:
 $ dsm inspect greeter cowsay nix         # cowsay → bash + perl → … (a real closure)
 ```
 
-**Resolve a cell by its hash, and run it.** Content-address a cell's nucleus,
-fetch it (locally or from a peer that has it), reconstruct it, and run its tool —
-the foundation of the "call code by hash" idea:
+**Resolve a cell by its hash, and run it.** Content-address a whole cell
+(nucleus + membrane), fetch it (locally or from a peer that has it),
+reconstruct it, and run its tool — the foundation of the "call code by hash"
+idea:
 
 ```python
-from desmata.get import publish_cell, from_peer
+from desmata.get import publish_cell, from_hash
 
-hash = publish_cell(peer_ipfs, cell_dir)         # peer A: store the cell's nucleus
-cell = from_peer(peer_ipfs, my_ipfs, factory, hash, into=…, workdir=…)  # peer B: fetch by hash + build
-cell.greet("hello")                              # …and run it
+hashes = publish_cell(my_ipfs, cell_dir)   # peer A: store + pin the whole cell (`dsm publish`)
+                                           # peer A keeps `dsm serve` running; then, given nothing but the hash:
+cell = from_hash(my_ipfs, factory, "dsm:ipfs:…", into=…)   # peer B: local content resolves offline;
+cell.greet("hello")                                        # anything else is fetched from whichever peer has it
 ```
+
+Resolution is offline-first: a cell that is already local never needs a daemon.
+On a miss, the fetch needs `dsm serve` running (here to fetch, at the publisher
+to provide) — discovery goes through the DHT, so B never has to know who A is.
+The sneakernet path still works: `from_hash(…, car=bundle)` imports a CAR made
+by `pack_cell`, and `from_peer` pulls from an explicitly-referenced peer.
 
 Hashes are **self-describing**: `str(hash)` is `dsm:<backend>:<digest>` (today
 always `dsm:ipfs:<cid>`), so anyone who encounters one can tell which backend
@@ -164,6 +178,14 @@ resolves it — the seam a second content backend (e.g. iroh) plugs into. See
 `{path, narHash, narSize, references, deriver}` — projectable to a Trustix
 `KeyValuePair` (and a Semantic Paint brushstroke) for a future trust layer.
 
+**Publish and serve cells to peers:**
+
+```
+$ dsm publish path/to/cell   # content-address + pin the cell; prints its dsm:ipfs:… hashes
+$ dsm serve                  # run the ipfs daemon: published cells become fetchable by hash,
+                             # and non-local hashes become resolvable from peers
+```
+
 **Inspect and reset local state:**
 
 ```
@@ -172,21 +194,22 @@ $ dsm clean builtins       # clear one cell's home (any cell type)
 $ dsm clean --all
 ```
 
-There are **66 fast tests** (`pytest`) plus the containerized partition e2e
-(`pytest e2e`).
+There are **74 fast tests** (`pytest`), an opt-in three-node peer-discovery
+test (`pytest -m peernet`, uses the pinned nushell-cell fixture from the dev
+shell), plus the containerized partition e2e (`pytest e2e`).
 
 ## What doesn't work yet
 
 Real goals with partial or no implementation:
 
-- **The friendly collaboration CLI.** `dsm publish` / `dsm clone` / `dsm peers`
-  don't exist (`dsm ls` is a placeholder). The Alice/Bob workflow below is doable
-  with the building blocks (`publish_cell`, `from_peer`, the ssh/ipfs transport)
-  but isn't wrapped into commands.
-- **`from_hash("dsm:ipfs:Qm…", interface=…)` as a one-liner.** Resolving a cell
-  *by hash alone* works (`from_peer(peer, hash)`), but the polished single-argument form —
-  automatic peer discovery (so `--ipfs-path` isn't needed) and an `interface=`
-  conformance check — isn't built.
+- **The friendly collaboration CLI, completed.** `dsm publish` and `dsm serve`
+  exist; `dsm clone` / `dsm peers` don't yet (`dsm ls` is a placeholder). The
+  Alice/Bob workflow below is doable with the building blocks but isn't fully
+  wrapped into commands.
+- **`from_hash("dsm:ipfs:Qm…", interface=…)`'s `interface=` check.** Resolving a
+  cell by hash alone — string form, automatic peer discovery via the DHT —
+  works; the `interface=` conformance check (typed contract on the fetched
+  cell) isn't built.
 - **A trust layer.** Desmata *captures* Trustix-shaped provenance, but gossiping
   and reaching M-of-N consensus on build/run attestations is deferred (explored
   separately as Semantic Paint).
@@ -204,19 +227,29 @@ Real goals with partial or no implementation:
 The end state desmata is working toward.
 
 **Resolve implementations by hash**, the way Unison does — fetching and building
-non-Python dependencies transparently. The *capability* works today (publish a
-cell, `from_peer` it by hash, run its tool — see [What works
-today](#what-works-today)); the polished one-liner below — a single hash
-argument, automatic discovery, and an interface check — is the remaining ergonomic
-target:
+non-Python dependencies transparently. The *capability* works today, including
+the string-form hash and automatic peer discovery (publish a cell, `dsm serve`,
+and a peer `from_hash`-es it knowing only the hash — see [What works
+today](#what-works-today)); the `interface=` conformance check is the remaining
+ergonomic target:
 
 ```python
-# TARGET API — discovery + interface check not built; from_peer(peer, hash) works
+# WORKS TODAY except interface= (the typed-contract check is not built)
 from desmata.get import from_hash
 
 adder = from_hash("dsm:ipfs:Qm…", interface=Arithmetic)
 assert adder.add(1, 1) == 2
 ```
+
+**Lightweight cells.** Not every device can carry nix, and not every cell needs
+it. A planned second *weight class* of cell pins a prebuilt WebAssembly
+component in its nucleus (recipe still present for dev experience): heavy peers
+build from the recipe and attest that it reproduces the pinned artifact; light
+peers — a browser tab, a phone — fetch the blob by hash and run it sandboxed,
+with the component's WIT world as the typed membrane contract, no nix or python
+at runtime. One cell format, N runners; desmata stays the authoring **foundry**
+that fabricates and serves the lighter runners themselves. See
+[agent_primers/lightweight-cells.md](./agent_primers/lightweight-cells.md).
 
 **Collaborate by moving payloads, not by a shared namespace.** Desmata doesn't
 aim to replace `git`; it aims to replace emailing code or passing a thumb drive.

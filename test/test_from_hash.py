@@ -21,12 +21,12 @@ def test_from_hash_reconstructs_and_runs_a_cell(
     ipfs = builtins.ipfs
     ipfs.init()
 
-    # publish: the greeter cell's nucleus, content-addressed
-    cid, car = pack_cell(ipfs, Path(greeter.__file__).parent, workdir=tmp_path)
+    # publish: the whole greeter cell, content-addressed
+    hashes, car = pack_cell(ipfs, Path(greeter.__file__).parent, workdir=tmp_path)
 
     # resolve by hash into a fresh location, with no reference to the original
     factory = components.get(CellFactory)
-    cell = from_hash(ipfs, factory, cid, car, into=tmp_path / "fetched")
+    cell = from_hash(ipfs, factory, hashes.cell_hash, car, into=tmp_path / "fetched")
 
     assert isinstance(cell, Cell)
     assert cell.closure.local_name == "fetched"  # built from the unpacked dir

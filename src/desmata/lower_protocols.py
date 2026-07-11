@@ -1,7 +1,7 @@
 "a protocol is a 'lower' protocol if it does not depend on desmata.interfaces"
 import logging
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import StrEnum, auto
 from pathlib import Path
 from typing import NewType, Protocol, TypeAlias, runtime_checkable
@@ -55,7 +55,8 @@ ExternalPath = NewType("ExternalPath", Path) # elsewhere in the system, like /ni
 class CellHashes:
     cell_hash: CellHash
     nucleus_hash: NucleusHash
-    dependency_hashes: dict[str, DependencyHash]
+    # empty when the hashes describe a source directory (deps not built yet)
+    dependency_hashes: dict[str, DependencyHash] = field(default_factory=dict)
 
 
 

@@ -25,6 +25,29 @@ def make_ipfs(kubo_root: Path, home_root: Path, name: str = "peer") -> Tools.IPF
     return ipfs
 
 
+def isolate_node(ipfs: Tools.IPFS, *, swarm_key: str | None = None) -> None:
+    """Cut a repo off from the public ipfs network and from fixed ports, so
+    test daemons can't collide with each other, with a daemon the developer may
+    be running, or with the world: no bootstrap peers, no mdns, random
+    localhost-only ports, DHT in server mode (a localhost node would otherwise
+    demote itself to client, leaving a tiny test swarm with no DHT servers).
+
+    ``swarm_key`` makes the network private: nodes sharing the key form their
+    own swarm and reject everyone else."""
+    ipfs("bootstrap", "rm", "--all")
+    ipfs("config", "--json", "Addresses.Swarm", '["/ip4/127.0.0.1/tcp/0"]')
+    ipfs("config", "Addresses.API", "/ip4/127.0.0.1/tcp/0")
+    ipfs("config", "--json", "Addresses.Gateway", "[]")
+    ipfs("config", "--json", "Discovery.MDNS.Enabled", "false")
+    ipfs("config", "Routing.Type", "dhtserver")
+    # kubo treats loopback addresses as undialable and won't put them in DHT
+    # records, which silently breaks discovery on an all-localhost swarm; this
+    # opts loopback into the LAN DHT (the knob exists exactly for test nets)
+    ipfs("config", "--json", "Routing.LoopbackAddressesOnLanDHT", "true")
+    if swarm_key is not None:
+        (ipfs.repo / "swarm.key").write_text(swarm_key)
+
+
 def _injector(root: Path) -> Injector:
     """Build an injector backed by a desmata sandbox rooted at ``root``."""
 

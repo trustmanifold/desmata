@@ -329,10 +329,17 @@ class DefaultCellFactory(CellFactory):
 
         # capture build provenance: a Trustix-projectable narinfo per store path
         # in each managed dependency's closure (see provenance.py / phase-2.md).
+        # Artifact dependencies root outside the nix store (the blob itself);
+        # their provenance is whatever they witnessed while realizing (e.g. a
+        # builds_to mint), not a store-path closure.
         nix = get_nix(context)
         records: list = []
+        strokes: list = []
         for dep in deps.values():
-            records.extend(provenance.closure_provenance(nix, dep))
+            if Path(dep.root).parts[:3] == ("/", "nix", "store"):
+                records.extend(provenance.closure_provenance(nix, dep))
+            strokes.extend(provenance.witnessed_brushstrokes(dep))
         provenance.save(self.userspace, records)
+        provenance.save_brushstrokes(self.userspace, strokes)
 
         return CellType(closure, context)

@@ -28,7 +28,9 @@ showed *why* the storage model matters.
    (`nix copy --from ssh://…`) or a plain file copy on one
    (`transport.acquire_closure_*`). ssh is therefore a **trusted bootstrap tool**
    (added to `dsm check` alongside nix/git). Everything *after* ipfs rides the
-   content-addressed **ipfs** path (CAR/manifest, eventually bitswap) with dedup.
+   content-addressed **ipfs** path (CAR/manifest, and — since `dsm serve` and
+   `from_hash`'s online fallback landed — live bitswap with DHT discovery for
+   *cells*; dependency closures still travel as CAR/manifest) with dedup.
    Provenance is identical either way — same NARs/store paths — so verify-by-rebuild
    is unaffected. The single-machine acquire is tested in `test_bootstrap_peer.py`;
    the ssh/LAN form is the container phase.

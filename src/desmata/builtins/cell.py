@@ -51,6 +51,17 @@ class Tools:
                 log=loggers.proc,
                 env_filter=context.get_env_filter(exec_path=ipfs_path_entry),
             )
+            # kubo derives the repo location from $HOME; remember it so callers
+            # can reason about this repo (daemon detection, private-net keys)
+            self.repo = Path(context.home) / ".ipfs"
+
+        def daemon_running(self) -> bool:
+            """Whether a daemon is serving this repo. kubo writes ``<repo>/api``
+            while its daemon runs (and removes it on shutdown); when the file is
+            present, every CLI call against this repo automatically routes
+            through the daemon -- which is what gives offline-by-default
+            commands their online counterpart (see :mod:`desmata.serve`)."""
+            return (self.repo / "api").exists()
 
         def get_hash(self, target: Path) -> str:
             output = self("add", "-r", "--only-hash", str(target.resolve()))
@@ -109,6 +120,27 @@ class Tools:
             if offline:
                 args.append("--offline")
             return self(*args, str(target.resolve())).strip().splitlines()[-1]
+
+        def pin_add(
+            self, cid: str, *, offline: bool = True, timeout: float | None = None
+        ) -> None:
+            """Pin ``cid`` recursively so GC can never drop it (published cells
+            must outlive their publishing process). With ``offline=False`` the
+            daemon first fetches any missing blocks from peers -- this is the
+            online 'materialize a hash from the network' primitive."""
+            args = ["pin", "add", "--recursive"]
+            if offline:
+                args.append("--offline")
+            self(*args, cid, timeout=timeout)
+
+        def have(self, cid: str) -> bool:
+            """Whether every block under ``cid`` is already in this repo: an
+            offline traversal of the whole DAG succeeds iff nothing is missing
+            (a root block alone doesn't count as having the cell)."""
+            completed = self.run(
+                "refs", "-r", "--offline", cid, tolerate_err=True, no_stdout=True
+            )
+            return completed.exit_code == 0
 
         def refs(self, cid: str, *, offline: bool = True) -> list[str]:
             """The CIDs of every distinct block reachable under ``cid`` (its

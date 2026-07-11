@@ -20,16 +20,21 @@ from conftest import make_ipfs
 def test_from_peer_fetches_and_runs_a_cell_by_hash(
     builtins: DesmataBuiltins, components: Injector, tmp_path: Path
 ):
-    # peer A publishes the cell: stores its nucleus, gets back the hash
+    # peer A publishes the cell: stores nucleus + membrane, gets back the hashes
     ipfs_a = builtins.ipfs
     ipfs_a.init()
-    cid = publish_cell(ipfs_a, Path(greeter.__file__).parent)
+    hashes = publish_cell(ipfs_a, Path(greeter.__file__).parent)
 
-    # peer B has only the cid + a reference to A; it fetches and runs the cell
+    # peer B has only the cell hash + a reference to A; it fetches and runs the cell
     ipfs_b = make_ipfs(Path(builtins.closure.ipfs.root), tmp_path / "peerB")
     factory = components.get(CellFactory)
     cell = from_peer(
-        ipfs_a, ipfs_b, factory, cid, into=tmp_path / "fetched", workdir=tmp_path
+        ipfs_a,
+        ipfs_b,
+        factory,
+        hashes.cell_hash,
+        into=tmp_path / "fetched",
+        workdir=tmp_path,
     )
 
     assert "from-a-peer" in cell.greet("from-a-peer")

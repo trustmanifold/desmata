@@ -21,6 +21,7 @@ captured record thus speaks to both: Trustix for flat-quorum interop, SP for
 trust-graph gossip.
 """
 
+import hashlib
 import json
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, replace
@@ -243,6 +244,14 @@ def closure_provenance(nix: Nix, dep: Dependency) -> list[NarInfo]:
     return [NarInfo.from_path_info(info) for info in nix.closure_info(str(dep.root))]
 
 
+def witnessed_brushstrokes(dep: Dependency) -> list[Brushstroke]:
+    """Brushstrokes a dependency minted while realizing itself — e.g. an
+    artifact dependency's locally-witnessed ``builds_to(nucleus, artifact)``
+    (:mod:`desmata.artifact`). Empty for dependency kinds that witness
+    nothing."""
+    return list(getattr(dep, "witnessed", []) or [])
+
+
 # --- persistence -----------------------------------------------------------
 # Records are keyed by store path (the Trustix Key) and written one file per
 # path, so the same store path captured by two tools/cells lands on one file --
@@ -264,6 +273,47 @@ def save(files: UserspaceFiles, records: Iterable[NarInfo]) -> None:
     for record in records:
         path = directory / f"{_ident(record.path)}.json"
         path.write_text(json.dumps(record.to_dict(), separators=(",", ":")))
+
+
+def _brushstroke_dir(files: UserspaceFiles) -> Path:
+    return files.data / "provenance" / "brushstrokes"
+
+
+def save_brushstrokes(files: UserspaceFiles, strokes: Iterable[Brushstroke]) -> None:
+    """Persist brushstrokes (e.g. ``builds_to`` witnesses), one file per claim.
+    Files are keyed by the claim's canonical signing bytes, so re-witnessing
+    the same fact lands on the same file -- dedup, like the narinfo store."""
+    directory = _brushstroke_dir(files)
+    strokes = list(strokes)
+    if not strokes:
+        return
+    directory.mkdir(parents=True, exist_ok=True)
+    for stroke in strokes:
+        ident = hashlib.sha256(stroke.signing_input()).hexdigest()
+        (directory / f"{ident}.json").write_text(
+            json.dumps(stroke.to_dict(), separators=(",", ":"))
+        )
+
+
+def load_brushstrokes(files: UserspaceFiles) -> list[Brushstroke]:
+    """All persisted brushstrokes."""
+    directory = _brushstroke_dir(files)
+    if not directory.exists():
+        return []
+    out: list[Brushstroke] = []
+    for path in sorted(directory.glob("*.json")):
+        d = json.loads(path.read_text())
+        out.append(
+            Brushstroke(
+                color=d["color"],
+                palette=d["palette"],
+                args=tuple(d["args"]),
+                determinism=d.get("determinism", "exact-hash"),
+                suite=d.get("suite"),
+                author_sig=bytes.fromhex(d["authorSig"]) if d.get("authorSig") else None,
+            )
+        )
+    return out
 
 
 def load(files: UserspaceFiles) -> dict[str, NarInfo]:
