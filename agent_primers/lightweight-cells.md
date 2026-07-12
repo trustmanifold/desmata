@@ -120,9 +120,10 @@ denotes the *invocation contract*, and any engine satisfying it qualifies:
 
 * `cell-wasm` — canonical component invocation on a cell's nucleus-pinned
   artifact (verify pins, WIT conformance, canonical-ABI/WAVE values, sandboxed
-  execution). desmata-py-over-wasmtime and the runner-cell browser page are
-  two implementations of this one name; an spd node embedding an engine would
-  be a third.
+  execution). Three implementations of this one name exist:
+  desmata-py-over-wasmtime, the runner-cell browser page, and the spd node's
+  verify runner (SemanticPaint `spd/verify/verify.gleam` + `spd_wasm_ffi`,
+  which re-executes gossiped `evaluates_to` claims).
 * `nix` — rebuild the recipe and hold the output against the pin/hash
   (exact-hash by construction). Foundry-only by nature.
 

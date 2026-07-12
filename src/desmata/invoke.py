@@ -55,6 +55,22 @@ class Invoker(Protocol):
         in :mod:`desmata.wave`."""
         raise NotImplementedError()
 
+    def invoke_raw(
+        self,
+        component: Path,
+        function: str,
+        args_wave: str,
+        *,
+        timeout: float | None = DEFAULT_INVOKE_TIMEOUT,
+    ) -> str:
+        """Like :meth:`invoke`, but the arguments arrive as a ready WAVE
+        argument list (:func:`desmata.wave.encode_args`) and the result is the
+        engine's canonical WAVE rendering, stripped, undecoded. This is the
+        form an ``evaluates_to(C, F, X, Y)`` witness carries: Y must be the
+        engine's own bytes, not a desmata re-encoding, because a verifier
+        holds its engine's rendering against Y byte-for-byte."""
+        raise NotImplementedError()
+
 
 class WasmtimeCli(Tool, Invoker):
     """The wasmtime CLI as a desmata tool and the reference :class:`Invoker`.
@@ -82,14 +98,27 @@ class WasmtimeCli(Tool, Invoker):
         *,
         timeout: float | None = DEFAULT_INVOKE_TIMEOUT,
     ) -> Any:
-        expr = f"{function}({', '.join(wave.encode(a) for a in args)})"
+        raw = self.invoke_raw(
+            component, function, wave.encode_args(args), timeout=timeout
+        )
+        return wave.decode(raw)
+
+    def invoke_raw(
+        self,
+        component: Path,
+        function: str,
+        args_wave: str,
+        *,
+        timeout: float | None = DEFAULT_INVOKE_TIMEOUT,
+    ) -> str:
+        expr = f"{function}({args_wave})"
         # -C cache=n: no cache dir writes, so calls are hermetic wherever HOME
         # points (the same flags the flake checks pin down).
         out = self(
             "run", "-C", "cache=n", "--invoke", expr, str(Path(component).resolve()),
             timeout=timeout,
         )
-        return wave.decode(out.strip())
+        return out.strip()
 
 
 def build_invoker(context: CellContext) -> WasmtimeCli:

@@ -32,7 +32,7 @@ from desmata.content import Hash
 from desmata.exceptions import ArtifactPinMismatch, CellUnavailable, PublishMismatch
 from desmata.invoke import build_invoker
 from desmata.keys import peer_key
-from desmata.paint import publish_strokes
+from desmata.paint import publish_strokes, ship_blobs, witnessed_call
 from desmata.cli.common import cli_logger
 from desmata.serve import DaemonFailed, serve_forever
 from desmata.fs import DesmataFiles
@@ -275,16 +275,20 @@ def paint(
     """Sign witnessed brushstrokes with the peer key and publish them to a
     Semantic Paint node.
 
-    Everything this userspace has witnessed (e.g. ``builds_to`` attestations
-    minted while realizing artifact dependencies) is signed under the peer's
-    placer identity and POSTed to the node. The node's acknowledgement must
-    agree with our locally-derived content ids, so a successful paint also
-    proves both sides serialize strokes identically.
+    Everything this userspace has witnessed (``builds_to`` attestations
+    minted while realizing artifact dependencies, ``evaluates_to`` claims
+    minted by ``dsm call``) is signed under the peer's placer identity and
+    POSTed to the node, along with the outbox blobs those claims dereference
+    (the wasm components behind ``evaluates_to``, so the node's cell-wasm
+    runner can re-execute them). The node's acknowledgement must agree with
+    our locally-derived content ids, so a successful paint also proves both
+    sides serialize strokes identically.
     """
     loggers = CliLoggers(verbose=verbose)
     files = userspace(loggers, root=home)
     key = peer_key(files)
     try:
+        shipped = ship_blobs(files, node)
         published = publish_strokes(files, key, node)
     except PublishMismatch as e:
         typer.echo(f"published, but the node disagrees about identity: {e}")
@@ -293,6 +297,8 @@ def paint(
         typer.echo(f"could not reach {node}: {e}")
         raise typer.Exit(code=1)
 
+    if shipped:
+        typer.echo(f"shipped {len(shipped)} referenced blob(s)")
     if not published:
         typer.echo("nothing witnessed yet: no brushstrokes to publish")
         return
@@ -402,7 +408,12 @@ def call(
             )
             # the cell's own flake supplies the runner (nix build .#wasmtime)
             invoker = build_invoker(context)
-            result = invoker.invoke(cell_dir / artifact, function, parsed_args)
+            # the pins were verified above, so the act is worth witnessing: an
+            # evaluates_to claim lands in the ledger (and the component bytes
+            # in the paint outbox) for the next `dsm paint`
+            result, _ = witnessed_call(
+                factory.userspace, invoker, cell_dir / artifact, function, parsed_args
+            )
 
     typer.echo(json.dumps(result))
 

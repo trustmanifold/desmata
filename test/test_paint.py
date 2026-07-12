@@ -11,6 +11,7 @@ trip is the cross-repo test that lands with the SP-side cell-wasm runner.
 """
 
 import base64
+import hashlib
 import json
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -19,12 +20,28 @@ from pathlib import Path
 import pytest
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
+from desmata import wave
 from desmata.exceptions import PublishMismatch
 from desmata.fs import DesmataFiles
 from desmata.keys import fingerprint, key_path, peer_key
 from desmata.log import TestLoggers
-from desmata.paint import PUBLISH_PATH, publish_strokes, sign_all
-from desmata.provenance import Brushstroke, save_brushstrokes
+from desmata.paint import (
+    PUBLISH_PATH,
+    PUT_DATA_PATH,
+    blob_dir,
+    publish_strokes,
+    ship_blobs,
+    sign_all,
+    stash_blob,
+    witnessed_call,
+)
+from desmata.provenance import (
+    SP_EVALUATES_TO,
+    SP_REPRODUCIBILITY_PALETTE,
+    Brushstroke,
+    load_brushstrokes,
+    save_brushstrokes,
+)
 
 
 def _files(tmp_path: Path) -> DesmataFiles:
@@ -78,24 +95,34 @@ def test_signed_stroke_verifies_under_the_peer_public_key(tmp_path: Path):
 
 class _StubNode:
     """A Semantic Paint node's publish surface, minus the node: decodes the
-    real request shape, derives content ids the way spd's store does (sha256
-    over canonical bytes), and echoes them as ``placed``."""
+    real request shapes, derives content ids (publish) and blob hashes
+    (put_data) the way spd's store does, and echoes them back."""
 
-    def __init__(self, placed_override=None):
+    def __init__(self, placed_override=None, blob_hash_override=None):
         self.requests: list[dict] = []
+        self.blobs: dict[str, bytes] = {}
         outer = self
 
         class Handler(BaseHTTPRequestHandler):
             def do_POST(self):
-                assert self.path == PUBLISH_PATH
                 body = self.rfile.read(int(self.headers["Content-Length"]))
                 decoded = json.loads(body)
-                outer.requests.append(decoded)
-                placed = placed_override or [
-                    Brushstroke.from_dict(d).content_id()
-                    for d in decoded["brushstrokes"]
-                ]
-                payload = json.dumps({"placed": placed}).encode()
+                if self.path == PUBLISH_PATH:
+                    outer.requests.append(decoded)
+                    placed = placed_override or [
+                        Brushstroke.from_dict(d).content_id()
+                        for d in decoded["brushstrokes"]
+                    ]
+                    payload = json.dumps({"placed": placed}).encode()
+                elif self.path == PUT_DATA_PATH:
+                    data = base64.b64decode(decoded["bytes_b64"])
+                    digest = blob_hash_override or hashlib.sha256(data).hexdigest()
+                    outer.blobs[digest] = data
+                    payload = json.dumps(
+                        {"ref": {"hash": digest, "suite": "sha256"}}
+                    ).encode()
+                else:
+                    raise AssertionError(f"unexpected POST {self.path}")
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json")
                 self.send_header("Content-Length", str(len(payload)))
@@ -167,3 +194,104 @@ def test_publish_with_empty_ledger_makes_no_request(tmp_path: Path):
     key = peer_key(files)
     # no server at this url; an attempt to POST would raise
     assert publish_strokes(files, key, "http://127.0.0.1:1") == []
+
+
+# --- witnessing invocations ---------------------------------------------------
+
+
+class _ScriptedEngine:
+    """An Invoker whose canonical WAVE rendering is scripted: the witness must
+    carry the engine's exact bytes, so the test controls what those are."""
+
+    def __init__(self, raw: str = "[7, 9]"):
+        self.raw = raw
+        self.calls: list[tuple[Path, str, str]] = []
+
+    def invoke_raw(self, component, function, args_wave, *, timeout=None) -> str:
+        self.calls.append((Path(component), function, args_wave))
+        return self.raw
+
+    def invoke(self, component, function, args, *, timeout=None):
+        return wave.decode(
+            self.invoke_raw(component, function, wave.encode_args(args))
+        )
+
+
+def test_witnessed_call_mints_an_evaluates_to_claim(tmp_path: Path):
+    files = _files(tmp_path)
+    component = tmp_path / "component.wasm"
+    component.write_bytes(b"pretend-component-bytes")
+    engine = _ScriptedEngine(raw="[7, 9]")
+
+    result, stroke = witnessed_call(
+        files, engine, component, "fingerprints", [[104, 105], 0, [], 0]
+    )
+
+    # the caller sees what plain invoke() would have returned
+    assert result == [7, 9]
+    # the claim: C = sha256 of the component bytes; F, X exactly as the engine
+    # received them; Y exactly as the engine rendered it
+    expected_hash = hashlib.sha256(b"pretend-component-bytes").hexdigest()
+    assert stroke.color == SP_EVALUATES_TO
+    assert stroke.palette == SP_REPRODUCIBILITY_PALETTE
+    assert stroke.args == (expected_hash, "fingerprints", "[104, 105], 0, [], 0", "[7, 9]")
+    assert engine.calls == [(component, "fingerprints", "[104, 105], 0, [], 0")]
+    # witnessed into the ledger, ready for the next paint
+    assert stroke in load_brushstrokes(files)
+    # and the bytes the claim dereferences sit in the outbox under their hash
+    assert (blob_dir(files) / expected_hash).read_bytes() == b"pretend-component-bytes"
+
+
+# --- shipping blobs -----------------------------------------------------------
+
+
+def test_ship_blobs_round_trips_content_addressing(tmp_path: Path):
+    files = _files(tmp_path)
+    a = stash_blob(files, b"component-a")
+    b = stash_blob(files, b"component-b")
+    with _StubNode() as node:
+        shipped = ship_blobs(files, node.url)
+        again = ship_blobs(files, node.url)
+    assert sorted(shipped) == sorted([a, b]) == sorted(again)
+    assert node.blobs[a] == b"component-a"
+    assert node.blobs[b] == b"component-b"
+
+
+def test_ship_blobs_refuses_a_disagreeing_node(tmp_path: Path):
+    files = _files(tmp_path)
+    stash_blob(files, b"component-a")
+    with _StubNode(blob_hash_override="not-sha256-of-the-bytes") as node:
+        with pytest.raises(PublishMismatch):
+            ship_blobs(files, node.url)
+
+
+def test_ship_blobs_with_empty_outbox_makes_no_request(tmp_path: Path):
+    files = _files(tmp_path)
+    # no server at this url; an attempt to POST would raise
+    assert ship_blobs(files, "http://127.0.0.1:1") == []
+
+
+def test_witness_then_paint_lands_claim_and_component_on_the_node(tmp_path: Path):
+    # the full desmata half of the verification story: dsm call (witness) then
+    # dsm paint (ship blobs + publish strokes), against the stub node
+    files = _files(tmp_path)
+    component = tmp_path / "component.wasm"
+    component.write_bytes(b"pretend-component-bytes")
+    _, stroke = witnessed_call(
+        files, _ScriptedEngine(), component, "fingerprints", [[104, 105], 0, [], 0]
+    )
+    key = peer_key(files)
+    with _StubNode() as node:
+        shipped = ship_blobs(files, node.url)
+        published = publish_strokes(files, key, node.url)
+
+    # the node holds the component bytes under the hash the claim carries
+    assert shipped == [stroke.args[0]]
+    assert node.blobs[stroke.args[0]] == b"pretend-component-bytes"
+    # and the signed claim itself, attributed to this peer
+    (request,) = node.requests
+    (wire,) = request["brushstrokes"]
+    assert wire["color"] == SP_EVALUATES_TO
+    assert tuple(wire["args"]) == stroke.args
+    assert wire["placer"] == key.placer
+    assert (published[0].content_id) == published[0].stroke.content_id()

@@ -23,7 +23,7 @@ Only the subset desmata needs is implemented; unknown constructs raise
 ``ValueError`` rather than guessing.
 """
 
-from typing import Any
+from typing import Any, Sequence
 
 _ESCAPES = {"\\": "\\\\", '"': '\\"', "\n": "\\n", "\t": "\\t", "\r": "\\r"}
 _UNESCAPES = {"\\": "\\", '"': '"', "n": "\n", "t": "\t", "r": "\r", "'": "'"}
@@ -53,6 +53,14 @@ def encode(value: Any) -> str:
         body = ", ".join(f"{k}: {encode(v)}" for k, v in value.items())
         return "{" + body + "}"
     raise ValueError(f"cannot WAVE-encode {type(value).__name__}: {value!r}")
+
+
+def encode_args(args: Sequence[Any]) -> str:
+    """The WAVE argument list as it appears between the parentheses of
+    ``--invoke 'f(...)'`` — and, verbatim, the X of an
+    ``evaluates_to(C, F, X, Y)`` claim: a verifier re-invokes by wrapping
+    this exact string back in ``F(...)``."""
+    return ", ".join(encode(a) for a in args)
 
 
 def decode(text: str) -> Any:

@@ -112,12 +112,26 @@ storing strokes nobody can verify. Publishing is idempotent (deterministic
 Ed25519 + mint-time `created_at` ⇒ byte-identical re-sends ⇒ same set-union
 ids).
 
-Still open: shipping the *referenced bytes* (the wasm component behind a
-`builds_to`) to where a verifier can dereference them, and the SP-side
-`cell-wasm` verify runner that re-executes the claim — plus ingest-time
-signature verification on the SP side (`canonical.verify_sig` still has no
-caller). The `Attestation` shape must stay general — see
-verifiable-computation.md §6.
+The verification loop is closed (2026-07): every verified-pin `dsm call`
+witnesses an `evaluates_to(C, F, X, Y)` claim (`paint.witnessed_call` — C =
+sha256 of the component bytes, F/X the function and WAVE argument list
+exactly as the engine received them, Y the engine's canonical WAVE result
+verbatim) and stashes the component bytes in a content-addressed outbox;
+`dsm paint` ships the outbox to the node's `/api/put_data` (hash
+round-tripped, like publish round-trips content ids) before publishing the
+strokes. On the SP side the `reproducibility/v1` palette
+(SemanticPaint `palettes/reproducibility.json`) declares `evaluates_to`
+with a `cell-wasm`/exact-hash facet, and the node's runner
+(`spd/verify/verify.gleam` over `spd_wasm_ffi`, wasmtime with zero grants)
+re-executes and compares — live e2e: gnize-cell witness → paint →
+`/api/verify` returns `confirmed`, with forged results `refuted` and
+unshipped components `unavailable` (trust fallback). `builds_to` carries a
+`nix`/exact-hash facet no node implements yet, so those claims stay
+trust-mediated and their artifacts are deliberately not shipped.
+
+Still open: ingest-time signature verification on the SP side
+(`canonical.verify_sig` still has no caller). The `Attestation` shape must
+stay general — see verifiable-computation.md §6.
 
 ## 5. The honest boundary (unchanged, now enforceable)
 

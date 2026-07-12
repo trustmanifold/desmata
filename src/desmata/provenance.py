@@ -73,6 +73,12 @@ class Attestation:
 SP_REPRODUCIBILITY_PALETTE = "reproducibility/v1"
 SP_BUILDS_TO = "builds_to"    # builds_to(Recipe|StorePath [key], NarHash [value])
 SP_REFERENCES = "references"  # references(StorePath [key], Dep [value]) — a closure edge
+# evaluates_to(Component [key], Function [key], ArgsWave [key], ResultWave
+# [value]) — a cell-wasm invocation claim: sha256 of the component bytes, the
+# WIT function, the WAVE argument list, and the engine's canonical WAVE
+# result. The one verifiable color a pocket-class SP node can confirm locally
+# (its cell-wasm runner re-invokes and compares exact).
+SP_EVALUATES_TO = "evaluates_to"
 
 # SP's brushstroke crypto suite (spd/node/state.gleam). The desmata peer key is
 # an ed25519 key, so a desmata-authored stroke signs under the same suite.
