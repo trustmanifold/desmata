@@ -29,8 +29,10 @@ from desmata.cell_archive import (
 )
 from desmata.cell_factory import BasicContext
 from desmata.content import Hash
-from desmata.exceptions import ArtifactPinMismatch, CellUnavailable
+from desmata.exceptions import ArtifactPinMismatch, CellUnavailable, PublishMismatch
 from desmata.invoke import build_invoker
+from desmata.keys import peer_key
+from desmata.paint import publish_strokes
 from desmata.cli.common import cli_logger
 from desmata.serve import DaemonFailed, serve_forever
 from desmata.fs import DesmataFiles
@@ -258,6 +260,46 @@ def publish(
     typer.echo("      └ just the stable core; shared by every fork that only edits the membrane")
     typer.echo("")
     typer.echo("Peers can fetch it by hash while `dsm serve` is running here.")
+
+
+@app.command()
+def paint(
+    node: str = typer.Argument(
+        ..., help="a Semantic Paint node's admin URL, e.g. http://localhost:4801"
+    ),
+    verbose: bool = typer.Option(False, "--verbose", "-v"),
+    home: Optional[Path] = typer.Option(
+        None, "--home", help="sandbox desmata's state under this directory instead of the XDG dirs"
+    ),
+):
+    """Sign witnessed brushstrokes with the peer key and publish them to a
+    Semantic Paint node.
+
+    Everything this userspace has witnessed (e.g. ``builds_to`` attestations
+    minted while realizing artifact dependencies) is signed under the peer's
+    placer identity and POSTed to the node. The node's acknowledgement must
+    agree with our locally-derived content ids, so a successful paint also
+    proves both sides serialize strokes identically.
+    """
+    loggers = CliLoggers(verbose=verbose)
+    files = userspace(loggers, root=home)
+    key = peer_key(files)
+    try:
+        published = publish_strokes(files, key, node)
+    except PublishMismatch as e:
+        typer.echo(f"published, but the node disagrees about identity: {e}")
+        raise typer.Exit(code=1)
+    except OSError as e:
+        typer.echo(f"could not reach {node}: {e}")
+        raise typer.Exit(code=1)
+
+    if not published:
+        typer.echo("nothing witnessed yet: no brushstrokes to publish")
+        return
+    typer.echo(f"as placer {key.placer[:12]}… published:")
+    for p in published:
+        args = ", ".join(_short_cid(_short(a)) for a in p.stroke.args)
+        typer.echo(f"  {p.stroke.color}({args}) -> {p.content_id[:12]}…")
 
 
 @app.command()

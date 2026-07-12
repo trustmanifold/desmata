@@ -94,11 +94,30 @@ The mapping, as built:
   signed fact);
 - signed by the peer key (`Brushstroke.signed(placer_fingerprint, signer)`,
   suite `v1-ed25519-sha256`) — desmata peer key == Trustix LogSigner == SP
-  placer key. Witnesses persist unsigned until publish-time signing lands.
+  placer key. The peer key is real now (`keys.py`: one Ed25519 keypair per
+  userspace, `data/identity/peer.ed25519`; the placer handle is the
+  lowercase-hex sha256 of the raw pubkey, byte-for-byte SP's
+  `identity.gleam` fingerprint). Witnesses persist *unsigned*; signing
+  happens at publish time.
 
-Still open: actually POSTing these to a running SP node's `publish` endpoint
-(desmata-as-app, SP ARCHITECTURE.md §5 step 5). The `Attestation` shape must
-stay general — see verifiable-computation.md §6.
+Publish-time is built (`paint.py`, surfaced as `dsm paint <node-url>`):
+sign the ledger's witnessed strokes under the peer key and POST them to the
+node's `/api/publish`. The node stores a pre-signed stroke **as-is** —
+attributed to the desmata placer, not re-signed as the node
+(`state.gleam publish`; its gleam tests pin both branches) — and replies
+with the content ids it derived from *its* canonical bytes. desmata requires
+those ids to equal its own, so every publish round-trips the
+canonical-serialization contract; drift raises `PublishMismatch` instead of
+storing strokes nobody can verify. Publishing is idempotent (deterministic
+Ed25519 + mint-time `created_at` ⇒ byte-identical re-sends ⇒ same set-union
+ids).
+
+Still open: shipping the *referenced bytes* (the wasm component behind a
+`builds_to`) to where a verifier can dereference them, and the SP-side
+`cell-wasm` verify runner that re-executes the claim — plus ingest-time
+signature verification on the SP side (`canonical.verify_sig` still has no
+caller). The `Attestation` shape must stay general — see
+verifiable-computation.md §6.
 
 ## 5. The honest boundary (unchanged, now enforceable)
 
