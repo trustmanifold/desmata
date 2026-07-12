@@ -1,8 +1,13 @@
 # Primer: builds are a special case of verifiable computation
 
-**Status:** forward-looking vision note. **Not scheduled.** Its only near-term
-job is to constrain **one** Phase 2 decision (the shape of the provenance record)
-so this future stays reachable. Nothing here needs building now.
+**Status:** vision note; its one binding decision is **made and built**. The
+provenance record is the general computation attestation this primer mandates
+(`provenance.Attestation(runner, recipe, inputs, outputs, determinism)`), with
+the Trustix nix `KeyValuePair` and the Semantic Paint `Brushstroke` emitted as
+projections of it — see §6. The wasm runner it calls for exists
+([lightweight-cells.md](./lightweight-cells.md), now built). The rest of the
+vision (runtime/scientific runners, M-of-N gossip at scale) remains forward-
+looking.
 
 **Audience:** whoever designs desmata's provenance/attestation records (Phase 2,
 thread 4) — read alongside [trustix-interop.md](./trustix-interop.md) and
@@ -90,10 +95,16 @@ one (machine recompute) masquerade as the expensive one (human peer review).
   enforced structurally). A candidate consumer of these attestations; see
   [semantic-paint-trust-layer.md](./semantic-paint-trust-layer.md).
 
-## 6. The one alteration for now
+## 6. The one alteration — done
 
-**No code change today** — the provenance record is unbuilt, and nothing committed
-forecloses this. When Phase 2 adds provenance capture, make the internal record a
-general computation attestation and emit the Trustix nix `KeyValuePair` as a
-projection. Cheap now; a painful refactor later. That is the entire near-term
-obligation.
+The internal record is the general computation attestation
+(`provenance.Attestation`), and the nix build is one projection of it
+(`NarInfo`, emitting the Trustix `KeyValuePair` via `trustix_key/value`). A
+third projection targets Semantic Paint (`provenance.Brushstroke` — SP's wire
+record verbatim, canonical bytes matching SP's `canonical.gleam`; see
+[semantic-paint-trust-layer.md](./semantic-paint-trust-layer.md) §4). Runner
+names in attestations and SP verification facets share one namespace and
+denote invocation *contracts*, not engines — `nix` (rebuild, exact-hash) and
+`cell-wasm` (canonical component invocation) are the two that exist
+(lightweight-cells.md §4). The determinism policy rides the attestation and
+the SP color's verification facet — never the individual brushstroke.

@@ -8,6 +8,7 @@ keeps the future runtime-provenance goal reachable
 (agent_primers/verifiable-computation.md).
 """
 
+import base64
 import json
 from pathlib import Path
 
@@ -19,13 +20,17 @@ from desmata.lower_protocols import UserspaceFiles
 from desmata.messages import NixPathInfo
 from desmata.nix import DerivationInfo, Nix
 from desmata.provenance import (
+    SP_SUITE,
     Attestation,
+    Brushstroke,
     NarInfo,
     closure_provenance,
     derivation_root,
     load,
+    load_brushstrokes,
     load_derivations,
     save,
+    save_brushstrokes,
     save_derivations,
 )
 from desmata.log import TestLoggers
@@ -100,6 +105,70 @@ def test_narinfo_lifts_to_general_attestation():
     # output is the built path; inputs are its references
     assert [o.store_path for o in att.outputs] == ["/nix/store/aaa-kubo"]
     assert {i.store_path for i in att.inputs} == set(ni.references)
+
+
+def _sample_stroke() -> Brushstroke:
+    return Brushstroke(
+        color="builds_to",
+        palette="reproducibility/v1",
+        args=("/nix/store/ddd-kubo.drv", "sha256-deadbeef="),
+        created_at=1_752_200_000_000,
+    )
+
+
+def test_brushstroke_canonical_bytes_match_sp():
+    # Pinned against SemanticPaint's spd/core/canonical.gleam: a compact JSON
+    # *array* of the identity-bearing fields in fixed order (color, palette,
+    # args, placer, created_at, suite, arg_versions-as-pairs), sig excluded,
+    # absent arg_versions rendered []. A change here breaks SP signature
+    # verification — change canonical.gleam first, then this vector.
+    stroke = _sample_stroke()
+    stamped = stroke.signed("a" * 64, lambda msg: b"sig-over:" + msg)
+    assert stamped.canonical_bytes() == (
+        b'["builds_to","reproducibility/v1",'
+        b'["/nix/store/ddd-kubo.drv","sha256-deadbeef="],'
+        b'"' + b"a" * 64 + b'",1752200000000,"v1-ed25519-sha256",[]]'
+    )
+
+
+def test_brushstroke_signed_covers_canonical_bytes_with_sig_empty():
+    stroke = _sample_stroke()
+    signed = stroke.signed("f" * 64, lambda msg: b"MAC:" + msg)
+    # placer and suite are stamped; the signature covers the canonical bytes of
+    # the stamped-but-unsigned stroke (sig plays no part in the canonical form,
+    # exactly as in canonical.gleam's sign/verify pair)
+    assert signed.placer == "f" * 64
+    assert signed.suite == SP_SUITE
+    assert base64.b64decode(signed.sig) == b"MAC:" + signed.canonical_bytes()
+
+
+def test_brushstroke_wire_form_matches_sp_decoder():
+    # Field names as spd/generated/brushstroke.gleam decodes them (snake_case).
+    d = _sample_stroke().signed("f" * 64, lambda _: b"s").to_dict()
+    assert set(d) == {
+        "color", "palette", "args", "placer", "created_at",
+        "suite", "sig", "arg_versions",
+    }
+    assert d["arg_versions"] is None
+    assert Brushstroke.from_dict(d) == _sample_stroke().signed("f" * 64, lambda _: b"s")
+
+
+def test_rewitnessing_a_fact_dedups_but_timestamps_differ(tmp_path: Path):
+    files = DesmataFiles.sandbox(tmp_path, log=TestLoggers())
+    first = _sample_stroke()
+    again = Brushstroke(
+        color=first.color,
+        palette=first.palette,
+        args=first.args,
+        created_at=first.created_at + 5_000,
+    )
+    assert first.fact() == again.fact()
+    assert first.canonical_bytes() != again.canonical_bytes()
+    save_brushstrokes(files, [first])
+    save_brushstrokes(files, [again])
+    # same fact -> one file (the later witness), like the narinfo store
+    (loaded,) = load_brushstrokes(files)
+    assert loaded == again
 
 
 def test_closure_provenance_over_builtin_tool(builtins: DesmataBuiltins):

@@ -1,10 +1,17 @@
 # Primer: lightweight cells — artifact-pinned, nix-free at runtime
 
-**Status:** design note. **Not scheduled.** Records the design for a second
-*weight class* of cell and the distribution tiers it implies, so nothing built
-in the meantime forecloses it. Nothing here needs building now.
+**Status:** built (2026-07). The design below is implemented through the M3
+pilot: the invoker seam (`invoke.py`, wasmtime CLI first), the canonical
+WAVE⇄JSON value mapping (`wave.py`), artifact-pinned dependencies with
+recipe-vs-pin verification and `builds_to` witnessing (`artifact.py`),
+`dsm call <dir-or-hash> <fn> <json-args>`, publish-time pin verification
+(`verify_artifacts`), the **gnize-cell** pilot (Test A, `pytest -m wasm`), and
+the **runner-cell** browser runner (Test B, `pytest -m browser`:
+fetch-by-hash → block-level re-hash → pin check → execute on the browser's
+wasm engine; a forged pin is refused). In-browser jco transpilation (M4)
+remains stretch. §§ below are kept as the rationale record.
 
-**Audience:** whoever adds a non-nix dependency kind, a `dsm call` command, or
+**Audience:** whoever adds a non-nix dependency kind, extends `dsm call`, or
 any runner that isn't the Python library. Read
 [nucleus-membrane.md](./nucleus-membrane.md) (manifest structure) and
 [verifiable-computation.md](./verifiable-computation.md) (runner plurality)
@@ -65,7 +72,12 @@ For lightweight cells, the canonical callable surface is the **WIT world**, not
   verifiable color needs.
 * The Component Model's **canonical ABI** supplies the canonical typed I/O
   encoding that verification requires; we do not invent a serialization
-  discipline.
+  discipline. Concretely (`wave.py`): values cross every runner boundary as
+  WAVE, and the JSON projection of a WAVE value renders **record fields in WIT
+  declaration order** — pinned so that two independent runners serialize the
+  same result byte-identically, which is what lets a gossiped
+  `(cell_hash, function, args, result)` claim be compared for
+  conflicting-attestation detection (SP §2.8) without re-parsing.
 * The README's `interface=` check becomes a **WIT conformance check** —
   language-neutral, machine-checkable, carried in the artifact.
 
@@ -101,6 +113,50 @@ The spec to guard jealously: manifest shape, hash scheme (`dsm:<backend>:…`),
 nucleus/artifact pinning, WIT-as-contract, canonical invocation. That is the
 product; Python is the drill press that makes things for people who don't own
 one.
+
+**Runner names name the contract, not the implementation.** Where a runner is
+named — an SP verification facet, an `Attestation.runner` field — the name
+denotes the *invocation contract*, and any engine satisfying it qualifies:
+
+* `cell-wasm` — canonical component invocation on a cell's nucleus-pinned
+  artifact (verify pins, WIT conformance, canonical-ABI/WAVE values, sandboxed
+  execution). desmata-py-over-wasmtime and the runner-cell browser page are
+  two implementations of this one name; an spd node embedding an engine would
+  be a third.
+* `nix` — rebuild the recipe and hold the output against the pin/hash
+  (exact-hash by construction). Foundry-only by nature.
+
+This is what gives per-claim capability requirements: a pocket-tier node
+confirms `cell-wasm` claims locally and leaves `nix` claims to trust, and the
+facet's runner name *is* the requirement.
+
+**Purity is part of the `cell-wasm` contract — enforced, and statically
+checkable, not declared.** Wasm is capability-based: a component can only
+reach the world through its *imports*, so a component that imports no WASI
+interfaces **cannot** touch the filesystem, network, clock, or entropy — the
+engine has nothing to hand it. The contract therefore has two halves:
+
+* **Enforcement (the runner's half):** instantiate with *zero* ambient
+  capabilities — no fs, no net, no env, no preopens. Both existing
+  implementations already comply (`invoke.py`'s wasmtime gets no grants; the
+  browser page instantiates bare), plus resource caps at the seam (timeouts
+  today; fuel/epoch + memory limits are the same knob). Engines must also pin
+  the determinism corners: canonicalize NaNs, no relaxed-simd, so a
+  zero-import call is bit-deterministic — which is exactly what `exact-hash`
+  verification of a gossiped `(cell_hash, function, args, result)` claim
+  assumes.
+* **Verification (anyone's half):** the import surface is *in the pinned
+  bytes*. `wasm-tools component wit` on the blob — whose hash the nucleus
+  pins — shows every import, so "this function is pure" is not a trusted
+  assertion but a cheap static check over content-addressed bytes, available
+  even to a pocket node that never executes the function. Purity claims
+  gossiped as brushstrokes are thus *verifiable colors* with a static (no-
+  execution) verification procedure.
+
+A future weight class that legitimately needs I/O (a WASI-http cell, say)
+must take a **different contract name** — it is a different trust bar, a
+different determinism story, and never a valid runner for a verifiable
+color. `cell-wasm` itself stays pure by definition.
 
 ## 5. Capability tiers (per device, not per person)
 
@@ -156,13 +212,24 @@ why SP is the first app worth exchanging on a fledgling network.
   nix nor python — the browser/phone tier of SP nodes verifies lightweight
   colors locally instead of always falling back to trust.
 
-## 7. The pilot
+## 7. The pilot — done
 
-**gnize-cell**: a sibling of nushell-cell whose nucleus is gnize's rust source
-+ WIT + flake recipe + artifact pin, and whose published blob is
-`gnize_wasm.wasm` (SemanticPaint already builds it, with a real typed
-interface — records and lists, not just strings). It would be the first cell
-fetchable by hash and callable on a machine with neither nix nor python, and
-the first whose pin-verification a heavy peer can gossip. Prerequisite worth
-doing anyway: give gnize-wasm the hermetic `wasmtime --invoke` flake check that
-hello-wasm has — that invocation path is what every runner will depend on.
+**gnize-cell** (committed): nucleus = gnize's flake recipe + extracted
+`component.wit` (with a wit-drift check) + artifact pin; the blob is committed
+with a `./repin` script. Test A (`pytest -m wasm`): publish → `from_hash` →
+fingerprints through the invoker → piped as JSON into nushell-cell's `math
+max` → equal to the Python max and to native `gn --json` built from the exact
+SemanticPaint rev the cell's lock pins. Its variant deletes the fetched blob,
+re-realizes via the recipe, verifies the pin, and checks the `builds_to`
+witness landed in provenance. The prerequisite hermetic `wasmtime --invoke`
+flake check lives in SemanticPaint (`gnize-wasm-invoke`) and guards the
+invocation path every runner depends on.
+
+**runner-cell** (committed) is the §5 runner tier made real: a heavy cell
+whose build output is the light runner (static bundle, servable from any
+foundry's kubo gateway). Test B (`pytest -m browser`) covers
+fetch-verify-execute and forged-pin refusal. One deliberate deviation from the
+§5 sketch: the page verifies blocks *explicitly* (multiformats + dag-cbor/
+dag-pb re-hashing against the requested CID) rather than through helia's
+verified-fetch — smaller, and the verification is visible rather than
+delegated.

@@ -109,6 +109,7 @@ class WasmComponent(Dependency):
                 color=SP_BUILDS_TO,
                 palette=SP_REPRODUCIBILITY_PALETTE,
                 args=(str(nucleus_hash(_dag_capable(hasher), cell_dir)), str(pin)),
+                created_at=Brushstroke.now_ms(),
             )
         ]
         return dep

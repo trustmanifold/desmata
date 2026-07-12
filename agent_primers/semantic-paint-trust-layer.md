@@ -69,25 +69,36 @@ is that **the same captured record can project to more than one trust layer**:
 A desmata that emits both projections interoperates with the Trustix ecosystem
 *and* rides SP's web-of-trust gossip — without a second capture.
 
-## 4. The one near-term obligation
+## 4. The one near-term obligation — now met
 
-Same shape as verifiable-computation.md's: **no code today.** Just keep
-`Attestation` projectable to an SP brushstroke the way it is already projectable to
-a Trustix `KeyValuePair`. It already is — `runner/recipe/inputs/outputs/determinism`
-map onto an SP verifiable color's `palette/procedure/args/determinism`, and the
-peer's ed25519 key is the SP signer. When the trust layer is actually built, add an
-`Attestation → brushstroke` projection beside `trustix_key/value`:
+The `Attestation → brushstroke` projection exists beside `trustix_key/value`:
+`provenance.Brushstroke`, whose field set is SP's wire record **verbatim**
+(`color, palette, args, placer, created_at, suite, sig, arg_versions` —
+SemanticPaint `haxe/src/api/types/Brushstroke.hx`, the schema source behind its
+generated Python/Gleam/TS types) and whose `canonical_bytes()` matches SP's
+`spd/core/canonical.gleam` byte-for-byte: a compact JSON *array* of the
+identity-bearing fields in fixed order, `sig` excluded. A stroke desmata signs
+therefore verifies on an SP node unchanged; `test_provenance.py` pins the
+canonical-bytes vector.
 
-- color/palette from `runner` + computation kind (e.g. `reproducibility/v1`,
-  `builds_to`);
-- `key` args = the input identity (drv / store path); `value` args = the output
-  hash; both content refs;
-- `determinism` copied through to the color's verification facet;
-- signed by the peer key.
+The mapping, as built:
 
-That is the whole obligation: one more projection of a record desmata already
-captures. Cheap to keep open; a painful retrofit if the `Attestation` shape ever
-goes nix-shaped (it must stay general — see verifiable-computation.md §6).
+- color/palette from `runner` + computation kind (`reproducibility/v1`,
+  `builds_to` / `references`); `NarInfo.to_brushstrokes()` projects a build,
+  and `WasmComponent.build_or_get` mints a `builds_to(nucleus, artifact)`
+  witness when a recipe rebuild verifies an artifact pin;
+- `key` args = the input identity (drv / store path / nucleus hash); `value`
+  args = the output hash. **Which arg is key vs value — and the determinism
+  policy — live on the color's verification facet in the palette definition,
+  not on the stroke** (SP §2.8 keeps them per-color; the stroke stays a bare
+  signed fact);
+- signed by the peer key (`Brushstroke.signed(placer_fingerprint, signer)`,
+  suite `v1-ed25519-sha256`) — desmata peer key == Trustix LogSigner == SP
+  placer key. Witnesses persist unsigned until publish-time signing lands.
+
+Still open: actually POSTing these to a running SP node's `publish` endpoint
+(desmata-as-app, SP ARCHITECTURE.md §5 step 5). The `Attestation` shape must
+stay general — see verifiable-computation.md §6.
 
 ## 5. The honest boundary (unchanged, now enforceable)
 

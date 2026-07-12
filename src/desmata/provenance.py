@@ -21,8 +21,10 @@ captured record thus speaks to both: Trustix for flat-quorum interop, SP for
 trust-graph gossip.
 """
 
+import base64
 import hashlib
 import json
+import time
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -72,6 +74,10 @@ SP_REPRODUCIBILITY_PALETTE = "reproducibility/v1"
 SP_BUILDS_TO = "builds_to"    # builds_to(Recipe|StorePath [key], NarHash [value])
 SP_REFERENCES = "references"  # references(StorePath [key], Dep [value]) — a closure edge
 
+# SP's brushstroke crypto suite (spd/node/state.gleam). The desmata peer key is
+# an ed25519 key, so a desmata-authored stroke signs under the same suite.
+SP_SUITE = "v1-ed25519-sha256"
+
 
 @dataclass(frozen=True)
 class Brushstroke:
@@ -81,47 +87,108 @@ class Brushstroke:
 
     This is the third projection of the same captured record (Trustix
     KeyValuePair, general Attestation, SP Brushstroke); see
-    ``agent_primers/semantic-paint-trust-layer.md``. Fields mirror SP's public
-    record (protocol_design.md §6.3): a ``color`` in a ``palette``, positional
-    ``args``, and a signature by the peer's ed25519 key — the *same* key that acts
-    as a Trustix ``LogSigner``. ``key``/``value`` arg roles live in the SP color
-    definition, not here; for ``builds_to`` the first arg is the key (the recipe
-    or input-addressed identity) and the second is the value (the output hash),
-    which is what lets SP detect *conflicting attestations* (SP §2.8)."""
+    ``agent_primers/semantic-paint-trust-layer.md``. The field set is SP's wire
+    record *verbatim* (SemanticPaint ``haxe/src/api/types/Brushstroke.hx``, the
+    schema source behind its generated Python/Gleam/TS types), and
+    :meth:`canonical_bytes` matches SP's ``spd/core/canonical.gleam``
+    byte-for-byte, so a stroke desmata signs verifies on an SP node unchanged.
+
+    ``key``/``value`` arg roles and the determinism policy are *not* stroke
+    fields: they live in the color's definition (the palette's verification
+    facet), where SP keeps them. For ``builds_to`` the first arg is the key (the
+    recipe or input-addressed identity) and the second is the value (the output
+    hash), which is what lets SP detect *conflicting attestations* (SP §2.8).
+    The signer is the peer's ed25519 key — the *same* key that acts as a Trustix
+    ``LogSigner``."""
 
     color: str
     palette: str
     args: tuple[str, ...]
-    determinism: str = "exact-hash"     # SP verification facet; nix builds are exact-hash
-    suite: str | None = None            # SP crypto suite id; set when signed
-    author_sig: bytes | None = None     # ed25519 sig by the peer key; set when signed
+    placer: str = ""     # signer's identity fingerprint (hex sha256 of the ed25519 pubkey); stamped by signed()
+    created_at: int = 0  # ms since epoch, stamped when the claim is minted
+    suite: str = ""      # crypto suite id (SP_SUITE); stamped by signed()
+    sig: str = ""        # base64 ed25519 over canonical_bytes(); "" until signed
+    # pseudonym seed versions (SP §6.8); desmata places none, the field exists
+    # so the wire form round-trips
+    arg_versions: tuple[tuple[int, int], ...] | None = None
 
-    def signing_input(self) -> bytes:
-        """Canonical bytes a peer signs to author this brushstroke. Field order is
-        pinned (as with :meth:`NarInfo.trustix_value`) so signatures verify
-        byte-for-byte across implementations."""
-        obj = {
-            "color": self.color,
-            "palette": self.palette,
-            "args": list(self.args),
-            "determinism": self.determinism,
-        }
-        return json.dumps(obj, separators=(",", ":")).encode()
+    def fact(self) -> bytes:
+        """The claim itself — (color, palette, args) — independent of who placed
+        it and when. Two witnesses of one fact agree on these bytes even though
+        their canonical bytes (timestamped, placer-stamped) differ."""
+        obj = [self.color, self.palette, list(self.args)]
+        return json.dumps(obj, separators=(",", ":"), ensure_ascii=False).encode()
 
-    def signed(self, suite: str, sign: Callable[[bytes], bytes]) -> "Brushstroke":
-        """Return a signed copy. ``sign`` is the peer's ed25519 signer (the desmata
-        peer key == Trustix LogSigner == SP author key)."""
-        return replace(self, suite=suite, author_sig=sign(self.signing_input()))
+    def canonical_bytes(self) -> bytes:
+        """The canonical form the placer signs and SP's store key is derived
+        from: a JSON array (not object) of the identity-bearing fields in fixed
+        order, ``sig`` excluded — byte-for-byte the output of
+        ``spd/core/canonical.gleam``."""
+        obj = [
+            self.color,
+            self.palette,
+            list(self.args),
+            self.placer,
+            self.created_at,
+            self.suite,
+            [[i, v] for i, v in (self.arg_versions or ())],
+        ]
+        return json.dumps(obj, separators=(",", ":"), ensure_ascii=False).encode()
+
+    def content_id(self) -> str:
+        """SP's store set-union key: hex SHA-256 of the canonical bytes."""
+        return hashlib.sha256(self.canonical_bytes()).hexdigest()
+
+    def signed(
+        self,
+        placer: str,
+        sign: Callable[[bytes], bytes],
+        suite: str = SP_SUITE,
+    ) -> "Brushstroke":
+        """Return a copy stamped with ``placer`` (the signer's identity
+        fingerprint) and signed — mirroring ``canonical.sign``: the signature
+        covers the canonical bytes with the placer stamped and ``sig`` empty.
+        ``sign`` is the peer's ed25519 signer (desmata peer key == Trustix
+        LogSigner == SP placer key)."""
+        stamped = replace(self, placer=placer, suite=suite, sig="")
+        sig = base64.b64encode(sign(stamped.canonical_bytes())).decode()
+        return replace(stamped, sig=sig)
 
     def to_dict(self) -> dict:
+        """The SP wire form (what an SP node's ``publish`` accepts)."""
         return {
             "color": self.color,
             "palette": self.palette,
             "args": list(self.args),
-            "determinism": self.determinism,
+            "placer": self.placer,
+            "created_at": self.created_at,
             "suite": self.suite,
-            "authorSig": self.author_sig.hex() if self.author_sig else None,
+            "sig": self.sig,
+            "arg_versions": None
+            if self.arg_versions is None
+            else [[i, v] for i, v in self.arg_versions],
         }
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "Brushstroke":
+        versions = d.get("arg_versions")
+        return cls(
+            color=d["color"],
+            palette=d["palette"],
+            args=tuple(d["args"]),
+            placer=d.get("placer", ""),
+            created_at=d.get("created_at", 0),
+            suite=d.get("suite", ""),
+            sig=d.get("sig", ""),
+            arg_versions=None
+            if versions is None
+            else tuple((i, v) for i, v in versions),
+        )
+
+    @staticmethod
+    def now_ms() -> int:
+        """The ``created_at`` stamp for a claim minted right now."""
+        return time.time_ns() // 1_000_000
 
 
 @dataclass(frozen=True)
@@ -193,19 +260,23 @@ class NarInfo:
         - one ``references`` edge per closure reference — the bidirectional
           dependency graph desmata wants, expressed as SP links.
 
-        Unsigned; call :meth:`Brushstroke.signed` with the peer key when emitting.
+        Unsigned; call :meth:`Brushstroke.signed` with the placer fingerprint
+        and peer key when emitting.
         """
+        minted = Brushstroke.now_ms()
         key = self.deriver or self.path
         build = Brushstroke(
             color=SP_BUILDS_TO,
             palette=SP_REPRODUCIBILITY_PALETTE,
             args=(key, self.nar_hash),
+            created_at=minted,
         )
         edges = [
             Brushstroke(
                 color=SP_REFERENCES,
                 palette=SP_REPRODUCIBILITY_PALETTE,
                 args=(self.path, ref),
+                created_at=minted,
             )
             for ref in self.references
         ]
@@ -281,15 +352,16 @@ def _brushstroke_dir(files: UserspaceFiles) -> Path:
 
 def save_brushstrokes(files: UserspaceFiles, strokes: Iterable[Brushstroke]) -> None:
     """Persist brushstrokes (e.g. ``builds_to`` witnesses), one file per claim.
-    Files are keyed by the claim's canonical signing bytes, so re-witnessing
-    the same fact lands on the same file -- dedup, like the narinfo store."""
+    Files are keyed by the claim's *fact* bytes (not its canonical bytes, which
+    carry the mint timestamp), so re-witnessing the same fact lands on the same
+    file -- dedup, like the narinfo store."""
     directory = _brushstroke_dir(files)
     strokes = list(strokes)
     if not strokes:
         return
     directory.mkdir(parents=True, exist_ok=True)
     for stroke in strokes:
-        ident = hashlib.sha256(stroke.signing_input()).hexdigest()
+        ident = hashlib.sha256(stroke.fact()).hexdigest()
         (directory / f"{ident}.json").write_text(
             json.dumps(stroke.to_dict(), separators=(",", ":"))
         )
@@ -300,20 +372,10 @@ def load_brushstrokes(files: UserspaceFiles) -> list[Brushstroke]:
     directory = _brushstroke_dir(files)
     if not directory.exists():
         return []
-    out: list[Brushstroke] = []
-    for path in sorted(directory.glob("*.json")):
-        d = json.loads(path.read_text())
-        out.append(
-            Brushstroke(
-                color=d["color"],
-                palette=d["palette"],
-                args=tuple(d["args"]),
-                determinism=d.get("determinism", "exact-hash"),
-                suite=d.get("suite"),
-                author_sig=bytes.fromhex(d["authorSig"]) if d.get("authorSig") else None,
-            )
-        )
-    return out
+    return [
+        Brushstroke.from_dict(json.loads(path.read_text()))
+        for path in sorted(directory.glob("*.json"))
+    ]
 
 
 def load(files: UserspaceFiles) -> dict[str, NarInfo]:
