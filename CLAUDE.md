@@ -1,5 +1,13 @@
 # Desmata Development Guide
 
+## What's next
+The prioritized plan for the desmata ⇄ SemanticPaint work — the
+whole-thesis demo scenario, then the interface palette, and what's
+deliberately deferred — is
+[agent_primers/whats-next.md](agent_primers/whats-next.md). Start there
+when asked "what's next here." Its twin (SP's vantage) is
+`~/src/SemanticPaint/docs/ROADMAP.md`; keep them in step.
+
 ## Build/Test Commands
 Dependencies are managed with uv and packaged for Nix via uv2nix.
 - Enter dev environment: `nix develop` (or `direnv allow` / `use flake`)

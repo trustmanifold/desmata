@@ -133,6 +133,10 @@ Still open: ingest-time signature verification on the SP side
 (`canonical.verify_sig` still has no caller). The `Attestation` shape must
 stay general — see verifiable-computation.md §6.
 
+What comes next for the whole integration — the demo scenario wiring
+`dsm paint` against a real `spd`, then the interface palette — is
+tracked in [whats-next.md](./whats-next.md).
+
 ## 5. The honest boundary (unchanged, now enforceable)
 
 verifiable-computation.md §4 insists recompute settles *repeatability*, not
