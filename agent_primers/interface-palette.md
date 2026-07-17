@@ -76,4 +76,4 @@ same-key/different-value conflict machinery.
   coercions, generics — WIT tooling's job, on the consumer's machine.
 - **No new wire encoding.** Strokes stay bare signed facts; canonical
   bytes stay the pinned JSON array until the deferral in
-  [whats-next.md](./whats-next.md) §4 wakes up.
+  [whats-next.md](./whats-next.md) §5 wakes up.
