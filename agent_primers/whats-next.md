@@ -25,8 +25,10 @@ trust already re-executed it.
 
 **Where it stands:** proven whole, in a repeatable artifact — SP's
 `scenarios/memoized_call.yaml` (landed 2026-07-17, §1), in SP's full
-pytest tier and replayable in the viewer. The sharpest remaining hole is
-ingest-time signature verification (§2).
+pytest tier and replayable in the viewer. Ingest-time signature
+verification landed on the SP side the same day — the node now checks our
+placer signatures at the publish door; our residue is sending our pubkey
+with the paint (§2).
 
 ---
 
@@ -51,10 +53,17 @@ SP consumes desmata via a `git+file` flake input pinned to this repo's
 
 ## 2. Soon
 
-- **Ingest-time signature verification [SP]** — `canonical.verify_sig`
-  still has no caller; the demo's attribution story is hollow until the
-  node actually checks our signatures. (Tracked here because our
-  `PublishMismatch` round-trip is the other half of that contract.)
+- **Send our pubkey with the paint [desmata]** — the SP side of
+  ingest-time signature verification LANDED 2026-07-17 (SP ROADMAP §2.1):
+  a pre-signed stroke is dropped unless its signature verifies against a
+  resolvable placer key, and the Publish request grew an optional
+  `placer_pubkeys` field (base64 raw ed25519; self-certifying, since the
+  placer id is the key's SHA-256). Until `dsm paint` includes its own key
+  there, SP's harness pre-introduces it out of band (it mints the
+  userspace identity itself and publishes an empty introduction before
+  the paint) — one line in `paint`'s publish body deletes that crutch.
+  Our `PublishMismatch` round-trip already fails loudly if a node rejects
+  the stroke.
 - **Forward-compatibility rule [both]** — spec + implement "ignore
   unknown fields" on the brushstroke wire record and palette JSON
   (atproto's reserved-field lesson). Nearly free now, painful to
