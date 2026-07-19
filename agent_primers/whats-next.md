@@ -64,12 +64,18 @@ SP consumes desmata via a `git+file` flake input pinned to this repo's
   the paint) — one line in `paint`'s publish body deletes that crutch.
   Our `PublishMismatch` round-trip already fails loudly if a node rejects
   the stroke.
-- **Forward-compatibility rule [both]** — spec + implement "ignore
-  unknown fields" on the brushstroke wire record and palette JSON
-  (atproto's reserved-field lesson). Nearly free now, painful to
-  retrofit, prerequisite for palette evolution. desmata's share:
-  `provenance.Brushstroke.from_dict` tolerates unknown keys; keep
-  `canonical_bytes()` closed over the pinned field list.
+- **LANDED (2026-07-17): Forward-compatibility rule [both]** — "ignore
+  unknown fields" on the brushstroke wire record and palette JSON is now
+  normative (SP `protocol_design.md` §6) and pinned by tests on all
+  sides. Every consumer already behaved this way; the work was locking
+  it in: SP's pylib codegen now emits an explicit `extra="ignore"`, SP
+  tests pin all three targets, and our share landed as
+  `test_brushstroke_from_dict_ignores_unknown_fields`
+  (`from_dict` pulls named keys only; `canonical_bytes()` stays closed
+  over the pinned field list, so extras never perturb content ids or
+  signatures). Spec'd corollary: unknown fields are *unsigned* — never
+  put anything load-bearing outside the schema. Unknown suite IDs stay
+  rejected (crypto agility, not shape).
 - **Deterministic fuel budgets for `cell-wasm` [both]** — adopted from
   the homestar review (§6). SP's engine maps its 60s wall-clock timeout
   to `refuted`, so a slow verifier can refute an honest expensive claim.

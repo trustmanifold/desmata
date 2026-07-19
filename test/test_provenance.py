@@ -153,6 +153,19 @@ def test_brushstroke_wire_form_matches_sp_decoder():
     assert Brushstroke.from_dict(d) == _sample_stroke().signed("f" * 64, lambda _: b"s")
 
 
+def test_brushstroke_from_dict_ignores_unknown_fields():
+    # Forward compatibility (SP ROADMAP §2.2, SP protocol_design.md §6): a
+    # newer peer may decorate the wire record with fields we don't know;
+    # from_dict drops them, and canonical_bytes() stays closed over the pinned
+    # field list, so content ids and signatures are unperturbed. The SP twins
+    # are node/test/forward_compat_test.gleam and
+    # tests/unit/test_forward_compat.py.
+    signed = _sample_stroke().signed("f" * 64, lambda msg: b"MAC:" + msg)
+    decorated = {**signed.to_dict(), "reserved_future_field": {"nested": [1]}}
+    assert Brushstroke.from_dict(decorated) == signed
+    assert Brushstroke.from_dict(decorated).canonical_bytes() == signed.canonical_bytes()
+
+
 def test_rewitnessing_a_fact_dedups_but_timestamps_differ(tmp_path: Path):
     files = DesmataFiles.sandbox(tmp_path, log=TestLoggers())
     first = _sample_stroke()
