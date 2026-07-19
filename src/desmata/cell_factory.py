@@ -5,7 +5,10 @@ import platform
 import re
 import shutil
 import stat
+import tempfile
+from contextlib import contextmanager
 from pathlib import Path
+from typing import Iterator
 
 from sqlalchemy import Engine
 
@@ -15,10 +18,11 @@ from desmata.builtins.cell import DesmataBuiltins
 from desmata.builtins.cell import Tools as DesmataBuiltinTools
 from desmata.cell_utils import get_nix
 from desmata.content import BackendRegistry, ContentBackend
-from desmata.exceptions import BadCellClassException
+from desmata.exceptions import BadCellClassException, CellUnavailable
 from desmata.fs import create_hard_links
 from desmata.higher_protocols import CellFactory
 from desmata.interface import Closure, Dependency, SpecificCell
+from desmata.session import Ephemeral, FromSnapshot, HomePolicy, Persistent
 from desmata.lower_protocols import (
     Caller,
     CellContext,
@@ -86,6 +90,7 @@ class BasicContext(CellContext):
     def __init__(
         self, name: str, cell_dir: InternalPath, userspace: UserspaceFiles, loggers: Loggers
     ):
+        self.name = name
         self.cell_dir = cell_dir
         self.caller = LocalCaller()
         self._userspace = userspace
@@ -95,6 +100,60 @@ class BasicContext(CellContext):
             home_subdir = self.home / subdir
             home_subdir.mkdir(parents=True, exist_ok=True)
         self.loggers = loggers.specialize(name)
+
+    @contextmanager
+    def home_for(self, policy: HomePolicy) -> Iterator[Path]:
+        """Materialize a session home per ``policy``, apply its declared overlay,
+        yield the home, and clean up on exit (ephemeral/snapshot homes only).
+
+        The default cell home (:attr:`home`) is fixed and accumulates; a session
+        home is *declared*: :class:`~desmata.session.Ephemeral` (fresh, discarded)
+        by default, so runs are hermetic unless persistence is asked for. A
+        declared overlay input that can't be found, or a snapshot source that
+        doesn't exist, fails loudly (:class:`~desmata.exceptions.CellUnavailable`)
+        rather than letting the run proceed off whatever the home happened to
+        contain -- the "works on my machine" bug caught at the door."""
+        sessions = self._userspace.data / "cells" / self.name / "sessions"
+        homes = self._userspace.data / "cells" / self.name / "homes"
+
+        cleanup = True
+        match policy:
+            case Ephemeral():
+                sessions.mkdir(parents=True, exist_ok=True)
+                home = Path(tempfile.mkdtemp(dir=sessions))
+            case Persistent(name=name):
+                home = homes / name
+                home.mkdir(parents=True, exist_ok=True)
+                cleanup = False
+            case FromSnapshot(source=source):
+                if not Path(source).exists():
+                    raise CellUnavailable(
+                        f"session snapshot source does not exist: {source}"
+                    )
+                sessions.mkdir(parents=True, exist_ok=True)
+                home = Path(tempfile.mkdtemp(dir=sessions))
+                shutil.copytree(source, home, dirs_exist_ok=True)
+            case _:
+                raise NotImplementedError(f"unknown home policy: {policy!r}")
+
+        for subdir in home_subdirs:
+            (home / subdir).mkdir(parents=True, exist_ok=True)
+
+        for relpath, src in policy.overlay.items():
+            src = Path(src)
+            if not src.exists():
+                raise CellUnavailable(
+                    f"declared session input missing: {relpath!r} <- {src}"
+                )
+            dest = home / relpath
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, dest)
+
+        try:
+            yield home
+        finally:
+            if cleanup:
+                shutil.rmtree(home, ignore_errors=True)
 
     def _get_default_env(self) -> EnvVars:
         return {

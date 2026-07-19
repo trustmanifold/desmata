@@ -132,6 +132,15 @@ class CellContext(Protocol):
         """
         raise NotImplementedError()
 
+    def home_for(self, policy):
+        """Materialize a session home per ``policy`` (a
+        :class:`desmata.session.HomePolicy`), apply its overlay, and yield it as
+        a context manager; ephemeral/snapshot homes are cleaned up on exit. The
+        seam :meth:`desmata.interface.Cell.session` drives -- annotated loosely
+        here to keep this protocol free of a dependency on ``desmata.session``.
+        """
+        raise NotImplementedError()
+
     def internalize_ids_hashes(
         self,
         *,

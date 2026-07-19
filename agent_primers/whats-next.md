@@ -53,6 +53,16 @@ SP consumes desmata via a `git+file` flake input pinned to this repo's
 
 ## 2. Soon
 
+- **Session lifecycle + hermetic home for cells [desmata]** — the
+  non-deferred half of session cells ([session-cells.md](./session-cells.md)
+  §3.1–3.2): a `Cell.session()` seam that generalizes `serve.py`'s
+  `running()` (one bring-up per N operations, not per call), plus
+  ephemeral-by-default homes with an opt-in content-addressed overlay /
+  snapshot so runtime state is *declared*, never ambient. Carries **no** SP
+  dependency — it is what packaging SP itself as a (Category-2,
+  distributable-artifact) cell needs, and the ipfs builtin already proves a
+  serverful cell works. The gossip half (`cell-session` runner + predicate
+  colors) stays deferred (§5). *In progress.*
 - **Send our pubkey with the paint [desmata]** — the SP side of
   ingest-time signature verification LANDED 2026-07-17 (SP ROADMAP §2.1):
   a pre-signed stroke is dropped unless its signature verifies against a
@@ -153,6 +163,7 @@ interface these closure/FK queries fit, in-memory now, database later.
 | Content-addressed palettes (reference by hash, not name+version) | name+version unambiguous at current scale | palettes evolve incompatibly / second palette author |
 | Spec'd deterministic canonical encoding (DAG-CBOR/DRISL-style) replacing the hand-rolled JSON array | twin byte-pinned test vectors (`test_provenance.py` ↔ `canonical.gleam`) do the job; migration breaks every sig and content id | a second independent wire implementation |
 | `nix` runner (rebuild-and-compare) | no foundry-class node exists; `builds_to` staying trust-mediated is fine — we deliberately don't ship those artifacts (`paint.py`) | someone stands up a foundry node |
+| `cell-session` runner + predicate colors — gossipable claims about *serverful* cells ([session-cells.md](./session-cells.md) §3.3, §6; SP ROADMAP §5) | `cell-session` is `nix`'s sibling: heavy, foundry-only, trust-mediated on pocket nodes. Wants SP §3's runner-name-in-gossip pattern first; the bug-repro travel story wants SP §4's blob co-shipping so an injected home overlay reaches peers by hash. **Distinct from** the session lifecycle + hermetic home ([session-cells.md](./session-cells.md) §3.1–3.2), which is desmata-side, carries no SP dependency, and is being built now | SP §3 lands **and** a serverful cell wants a non-trivial claim gossiped (first crowd-verified bug report, or SP-as-a-cell reproducibility) |
 | Blob co-shipping along dependency closures (replaces `put_data` preload) | `put_data` is the declared MVP stand-in, fine at demo scale | SP interest-driven sync matures |
 | iroh content backend (`content.py`) | IPFS covers the thesis path | phase-2 transport work resumes |
 | Key rotation (`keys.py`) | single peer key per userspace suffices pre-demo | multi-device / revocation needs |
