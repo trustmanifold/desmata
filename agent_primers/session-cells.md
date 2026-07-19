@@ -41,8 +41,12 @@ the two axes are already separable in the code.
   daemon. `desmata/serve.py` already has the lifecycle: `spawn_daemon` /
   `wait_ready` / `shutdown`, a `running()` context manager ("daemon up for
   the duration of this block"), and `serve_forever`. "Server up, do a
-  thing, server down" is that file today — just not yet generalized off
-  the ipfs tool onto the `Cell` interface.
+  thing, server down" is that file today. **(Landed 2026-07-18:** the
+  builtin's daemon now runs through `Cell.session()` too —
+  `DesmataBuiltins.setup`/`teardown` drive those same `serve.py` functions,
+  so `with builtins.session() as s:` yields a live daemon and
+  `s.handle.ipfs` routes through it; see §3.1/§3.2 below and
+  `test_builtins_session.py`.**)**
 - **Runners are named, pluggable contracts, not engines**
   (lightweight-cells §4). `cell-wasm` and `nix` are two names in one
   namespace; a third adds without touching the pure lane.
