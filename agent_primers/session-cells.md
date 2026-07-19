@@ -176,6 +176,19 @@ publish / ask / gossip calls, teardown stops it). The ipfs builtin already
 proves a serverful Category-2 cell works end to end — most of the
 SP-as-a-cell risk is retired before a line is written.
 
+**Landed (2026-07-19):** proven. SP's flake now builds `packages.spd` — a
+hermetic, offline `spd` artifact (gleam erlang-shipment; hex deps vendored
+as fixed-output derivations keyed by `manifest.toml`'s `outer_checksum`,
+which *is* the hex tarball sha256; erlang + coreutils wrapped in). It runs
+under a clean env, serves `/healthz`, honors `SP_DATA_DIR`, and stops on
+SIGTERM — a session cell asks no more. desmata drives it through
+`Cell.session()` in `test/test_spd_cell.py` (opt-in `-m spd`): one bring-up
+serves many requests, the Ephemeral state dir is discarded, a Persistent
+one reused. The wrapper is inline there; a productionized cell is a
+standalone `spd-cell` repo (gnize-cell pattern) — the remaining work is
+packaging (nucleus, artifact pin over the shipment, `dsm publish`), not
+mechanism.
+
 The blind-first-fetch bootstrap paradox (needing SP to judge whether to
 trust SP) is real but *social*, not a cell-mechanics problem
 (lightweight-cells §5: "identity and trust state cannot be fabricated
