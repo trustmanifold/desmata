@@ -2,9 +2,10 @@
 
 Both proof tests (Test A: foundry path via wasmtime; Test B: browser path via
 the runner page) hold their fingerprints against the same native binary,
-built from the same SemanticPaint rev that gnize-cell pins -- read straight
-out of gnize-cell's flake.lock, so there is one source of truth about which
-gnize the pilot is talking about.
+built from the cell checkout itself -- gnize's Rust workspace lives at
+gnize-cell's root (the sha256-cell shape), so the cell's own recipe and
+Cargo.lock are the one source of truth about which gnize the pilot is
+talking about.
 """
 
 import json
@@ -13,10 +14,7 @@ from pathlib import Path
 
 
 def native_gn(gnize_cell_src: Path) -> Path:
-    lock = json.loads((Path(gnize_cell_src) / "flake.lock").read_text())
-    locked = lock["nodes"]["semanticpaint"]["locked"]
-    assert locked["type"] == "git", f"unexpected input type: {locked}"
-    flake_url = f"git+{locked['url']}?ref={locked['ref']}&rev={locked['rev']}"
+    flake_url = f"git+file://{Path(gnize_cell_src).resolve()}"
     out = subprocess.run(
         [
             "nix", "--extra-experimental-features", "nix-command",
