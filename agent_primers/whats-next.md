@@ -90,16 +90,22 @@ SP consumes desmata via a `git+file` flake input pinned to this repo's
   engine's accounting stays valid under every other. Whether exhaustion
   should ever harden to `refuted` stays a contract-spec question,
   deferred.
-- **Palette schema at the Haxe root [SP]** — palette/color/facet/SyncDef
-  become `api` Models so parsers, encoders, and docs generate for every
-  target, the arg-type vocabulary closes as an enumeration, and the
-  drifted §6.1-vs-shipped-JSON shape is reconciled at the root (SP
-  ROADMAP §2.4). This deliberately keeps the palette format ready for
-  the deferred generate-a-client workflow (§5): typed stroke-constructor
-  stubs per color, of which a CLI is just one projection — cells already
-  carry their half as the WIT world. desmata's share: none yet, but
-  `paint.py`'s hand-built stroke shapes should track the generated
-  schema once it exists.
+- **LANDED (2026-07-18): Palette schema at the Haxe root [SP]** — the
+  palette format's single source of truth is now `haxe/src/api/types/`
+  (SP ROADMAP §2.4): the shipped-but-untyped `retention`/`requires`
+  keys became Models, the arg-type vocabulary closed as an enumeration
+  (`preimage`/`digest` — the sha256 pilot's types — included, so the
+  out-of-tree palette kept validating untouched), and the drifted
+  §6.1-vs-shipped-JSON docs were reconciled to the root. Notable
+  doctrine now spec'd: SP's harness fails closed on unknown arg types
+  at load; SP's node stays shape-permissive and abstains at use; and a
+  rule carrying an unknown side-condition kind never fires (was
+  fail-open). The palette format stays ready for the deferred
+  generate-a-client workflow (§5): typed stroke-constructor stubs per
+  color, of which a CLI is just one projection — cells already carry
+  their half as the WIT world. desmata's share: none required —
+  `paint.py`'s hand-built stroke shapes still match; adopting the
+  generated schema stays a §5 wake-up.
 
 ## 3. Next: the interface palette [both]
 
