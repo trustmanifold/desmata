@@ -57,6 +57,15 @@ class Ephemeral(HomePolicy):
     the common path reproduces and left-over state cannot leak into a run."""
 
 
+class Inherit(HomePolicy):
+    """Use the cell's own fixed home (``context.home``), unchanged and not
+    discarded. For a cell whose home is durable *identity*, not per-session
+    scratch -- the ipfs builtin's repo (keys) is the motivating case: a session
+    over it should serve that repo, the way ``dsm serve`` does, not spin up a
+    fresh peer each time. The default only where a cell opts into it; the
+    base default stays :class:`Ephemeral`."""
+
+
 class Persistent(HomePolicy):
     """A named home that survives teardown and accumulates across sessions.
     Opt-in: you get accumulation only by asking for it, by name."""

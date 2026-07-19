@@ -22,7 +22,7 @@ from desmata.exceptions import BadCellClassException, CellUnavailable
 from desmata.fs import create_hard_links
 from desmata.higher_protocols import CellFactory
 from desmata.interface import Closure, Dependency, SpecificCell
-from desmata.session import Ephemeral, FromSnapshot, HomePolicy, Persistent
+from desmata.session import Ephemeral, FromSnapshot, HomePolicy, Inherit, Persistent
 from desmata.lower_protocols import (
     Caller,
     CellContext,
@@ -118,6 +118,9 @@ class BasicContext(CellContext):
 
         cleanup = True
         match policy:
+            case Inherit():
+                home = Path(self.home)
+                cleanup = False
             case Ephemeral():
                 sessions.mkdir(parents=True, exist_ok=True)
                 home = Path(tempfile.mkdtemp(dir=sessions))
@@ -268,6 +271,9 @@ class BasicContext(CellContext):
             inner_env.update(self._get_passed_thru_vars(passthru))
             if exec_path := inner_env.get("PATH"):
                 exec_path = ":".join([*exec_path.split(":"), *deps])
+            # explicit overrides win over the computed defaults (e.g. pointing a
+            # tool at a specific repo via IPFS_PATH for a session-bound daemon)
+            inner_env.update(env_overrides)
             return inner_env
 
         return filter

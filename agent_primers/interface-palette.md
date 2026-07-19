@@ -68,7 +68,38 @@ same-key/different-value conflict machinery.
    memoization cache doubles as usage documentation. Tooling (`dsm`
    query or SP-side view) should present them as such.
 
-## 4. Non-goals
+## 4. Keep the door open: WIT is an interface *kind*, not the interface
+
+When this is picked up, build it so `wit` is one entry in a small closed
+vocabulary of **interface kinds**, not the definition of "interface." A
+cell should be able to declare a manifest — a list of `(name, kind,
+kind-specific spec)` — nucleus-adjacent, so "cell C offers interfaces
+I₁..Iₙ" is committed under the cell hash rather than implied by a Python
+class. The Python `Cell` class is a *host-side driver*, one binding among
+many; the manifest is the contract. Kinds already in sight:
+
+- `wit` — a function surface; spec = the WIT world (this primer's
+  subject). Any language reaches it via bindgen; this is the common case.
+- `devshell` — the cell's own development environment; spec = a flake
+  attr. Already real in practice; declaring it makes it discoverable.
+- Session-shaped kinds (`http`, `shell`, `browser`, `chat`) — things you
+  bring up and then talk to. These ride `Cell.session()`
+  ([session-cells.md](./session-cells.md) §3.1): the session yields a
+  handle, the kind says what the handle speaks (an OpenAPI ref, a PTY, a
+  URL to open, an agent endpoint). First expected customer: the scenario
+  playground (SP `docs/design/scenario_runner.md`), whose runner cell's
+  declared interface is `browser`.
+
+Same discipline as runners and arg types: each kind keeps its *native*
+spec (WIT stays WIT, OpenAPI stays OpenAPI — no universal IDL), the kind
+vocabulary is a closed enumeration per version, and an unknown kind fails
+closed (a consumer that doesn't know `browser` doesn't offer that mode).
+Projection into gossip is per-kind and *later*: `exports`/`type_def` is
+the `wit` kind's projection; other kinds' colors (e.g. an `http` spec
+hash, attest-only) can follow the same shape when wanted. Cost now: only
+don't hardwire "interface == WIT world" into names, Models, or CLI verbs.
+
+## 5. Non-goals
 
 - **No type system in Datalog.** SP rules only ever do hash-equality
   joins over `type_def` refs (`compatible(C1,F1,C2,F2) :-

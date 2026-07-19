@@ -1,4 +1,7 @@
 import json
+import subprocess
+from contextlib import AbstractContextManager
+from dataclasses import dataclass
 from pathlib import Path
 
 from desmata.cell_utils import get_nix
@@ -14,6 +17,7 @@ from desmata.higher_protocols import (
 )
 from desmata.interface import Cell, Closure, Dependency
 from desmata.lower_protocols import CellContext, ProtoDependency
+from desmata.session import Inherit, Session
 from desmata.tool import Tool
 
 
@@ -41,19 +45,25 @@ class Tools:
 
         backend = Backend.ipfs
 
-        def __init__(self, root: Path, context: CellContext):
+        def __init__(self, root: Path, context: CellContext, home: Path | None = None):
             loggers = context.loggers.specialize("ipfs")
             ipfs_path_entry = root / "bin"
             ipfs_exe = ipfs_path_entry / "ipfs"
+            # kubo derives the repo location from $HOME by default; a session may
+            # bind the tool to a specific home instead (Cell.session over the
+            # builtin), in which case IPFS_PATH pins the repo for every call --
+            # init, add, and the daemon all agree on it.
+            repo_home = Path(home) if home is not None else Path(context.home)
+            self.repo = repo_home / ".ipfs"
+            env_overrides = {} if home is None else {"IPFS_PATH": str(self.repo)}
             super().__init__(
                 name="ipfs",
                 path=ipfs_exe,
                 log=loggers.proc,
-                env_filter=context.get_env_filter(exec_path=ipfs_path_entry),
+                env_filter=context.get_env_filter(
+                    exec_path=ipfs_path_entry, env_overrides=env_overrides
+                ),
             )
-            # kubo derives the repo location from $HOME; remember it so callers
-            # can reason about this repo (daemon detection, private-net keys)
-            self.repo = Path(context.home) / ".ipfs"
 
         def daemon_running(self) -> bool:
             """Whether a daemon is serving this repo. kubo writes ``<repo>/api``
@@ -272,12 +282,56 @@ class BuiltinsClosure(Closure):
     ipfs: Deps.IPFS
 
 
+@dataclass
+class Daemon:
+    """A running ipfs daemon and the tool bound to the repo it serves. The
+    handle a :meth:`DesmataBuiltins.session` yields: ``ipfs`` routes commands
+    through ``process`` for the life of the session."""
+
+    process: subprocess.Popen
+    ipfs: "Tools.IPFS"
+
+
 class DesmataBuiltins(Cell[BuiltinsClosure], Hasher, Storage):
     ipfs: Tools.IPFS
 
     def __init__(self, closure: BuiltinsClosure, context: CellContext):
         super().__init__(closure, context)
         self.ipfs = closure.ipfs.get_tool(context)
+
+    # --- serverful lifecycle: the ipfs daemon over Cell.session() ------------
+    # The builtin is desmata's original serverful cell (`dsm serve` runs its
+    # daemon). Exposing it through the uniform session seam is what SP-as-a-cell
+    # (its spd daemon) will reuse. See agent_primers/session-cells.md §3.1.
+
+    def session(self, *, home=None) -> "AbstractContextManager[Session]":
+        """A live ipfs daemon for the duration of the block. Defaults to
+        :class:`~desmata.session.Inherit` -- serve this peer's own repo (its
+        keys), like ``dsm serve`` -- because an ipfs repo is durable identity,
+        not per-session scratch. Pass ``home=Ephemeral()`` for a fresh,
+        network-isolated throwaway node instead."""
+        return super().session(home=home if home is not None else Inherit())
+
+    def setup(self, home: Path) -> "Daemon":
+        from desmata import serve  # local: serve.py imports Tools from here
+
+        ipfs = Tools.IPFS(root=Path(self.closure.ipfs.root), context=self.context, home=home)
+        # a fresh session repo (Ephemeral/Persistent's first run) is initialized
+        # and isolated so a throwaway node never joins the public swarm; an
+        # existing repo (Inherit's identity, a returning Persistent) is served
+        # as-is, keys and network config intact.
+        if not (ipfs.repo / "config").exists():
+            ipfs.init()
+            serve.isolate(ipfs)
+        process = serve.spawn_daemon(ipfs)
+        serve.wait_ready(ipfs, process)
+        return Daemon(process=process, ipfs=ipfs)
+
+    def teardown(self, handle: "Daemon | None") -> None:
+        from desmata import serve
+
+        if handle is not None:
+            serve.shutdown(handle.process)
 
     def get_dependency_hash(self, dep: Dependency) -> DependencyHash:
         raise NotImplementedError()

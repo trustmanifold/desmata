@@ -28,6 +28,29 @@ class DaemonFailed(Exception):
     """The ipfs daemon exited early or never became ready."""
 
 
+def isolate(ipfs: Tools.IPFS, *, swarm_key: str | None = None) -> None:
+    """Cut a repo off from the public ipfs network and from fixed ports, so a
+    throwaway session node can't collide with a developer's daemon, another
+    test, or the world: no bootstrap peers, no mDNS, random localhost-only
+    ports, DHT in server mode (a localhost node would otherwise demote itself
+    to client, leaving a tiny swarm with no DHT servers).
+
+    ``swarm_key`` makes the network private: nodes sharing the key form their
+    own swarm and reject everyone else. Must run before the daemon starts."""
+    ipfs("bootstrap", "rm", "--all")
+    ipfs("config", "--json", "Addresses.Swarm", '["/ip4/127.0.0.1/tcp/0"]')
+    ipfs("config", "Addresses.API", "/ip4/127.0.0.1/tcp/0")
+    ipfs("config", "--json", "Addresses.Gateway", "[]")
+    ipfs("config", "--json", "Discovery.MDNS.Enabled", "false")
+    ipfs("config", "Routing.Type", "dhtserver")
+    # kubo treats loopback addresses as undialable and won't put them in DHT
+    # records, which silently breaks discovery on an all-localhost swarm; this
+    # opts loopback into the LAN DHT (the knob exists exactly for test nets)
+    ipfs("config", "--json", "Routing.LoopbackAddressesOnLanDHT", "true")
+    if swarm_key is not None:
+        (ipfs.repo / "swarm.key").write_text(swarm_key)
+
+
 def spawn_daemon(ipfs: Tools.IPFS) -> subprocess.Popen:
     """Start ``ipfs daemon`` on this tool's repo (initializing it if needed)
     and return the process without waiting for readiness."""
