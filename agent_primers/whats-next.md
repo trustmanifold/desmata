@@ -76,19 +76,20 @@ SP consumes desmata via a `git+file` flake input pinned to this repo's
   signatures). Spec'd corollary: unknown fields are *unsigned* — never
   put anything load-bearing outside the schema. Unknown suite IDs stay
   rejected (crypto agility, not shape).
-- **Deterministic fuel budgets for `cell-wasm` [both]** — adopted from
-  the homestar review (§6). SP's engine maps its 60s wall-clock timeout
-  to `refuted`, so a slow verifier can refute an honest expensive claim.
-  Fix: resource exhaustion → `unavailable`, never `refuted`, and the
-  verification facet declares a metering ceiling so metered engines give
-  up at a reproducible point instead of a wall-clock one. "Fuel" is
-  wasmtime's feature, not a wasm concept — accounting is per-engine
-  (browser runners have none and stay on wall-clock), which is safe
-  because exhaustion only ever abstains. desmata's share: the reference
-  invoker (`invoke.py`) defines how the `cell-wasm` contract passes the
-  budget to the engine, the way it defined the invocation itself. Budget
-  is a generous ceiling, not part of the compared artifact (even
-  wasmtime's accounting varies across versions).
+- **LANDED (2026-07-18): Deterministic fuel budgets for `cell-wasm`
+  [both]** — adopted from the homestar review (§6). SP side: resource
+  exhaustion (wall-clock or fuel) is now `unavailable`, never `refuted` —
+  only a completed mismatch or a trap refutes (SP protocol_design.md
+  §2.8, "giving up is not failing") — and the verification facet grew an
+  optional `budget` the wasmtime engine renders as `-W fuel=N`. Our
+  share: the reference `Invoker` protocol (`invoke.py`) now defines
+  `budget: int | None` on `invoke`/`invoke_raw` — the contract's
+  metering ceiling, engine-defined accounting, exhaustion is abstention
+  — and the wasmtime CLI impl passes it as fuel. Budget is a generous
+  ceiling, not part of the compared artifact; a witness minted under one
+  engine's accounting stays valid under every other. Whether exhaustion
+  should ever harden to `refuted` stays a contract-spec question,
+  deferred.
 - **Palette schema at the Haxe root [SP]** — palette/color/facet/SyncDef
   become `api` Models so parsers, encoders, and docs generate for every
   target, the arg-type vocabulary closes as an enumeration, and the

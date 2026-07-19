@@ -39,7 +39,18 @@ DEFAULT_INVOKE_TIMEOUT = 60.0
 
 @runtime_checkable
 class Invoker(Protocol):
-    """Anything that can call a function on a wasm component."""
+    """Anything that can call a function on a wasm component.
+
+    ``budget`` is the cell-wasm contract's deterministic metering ceiling
+    (SP ROADMAP §2.3): when set, an engine that supports deterministic
+    metering gives up at that reproducible point instead of a wall-clock
+    one. Accounting is engine-defined ("fuel" is wasmtime's feature, not a
+    wasm concept; other engines meter differently, browser engines not at
+    all and stay on wall-clock). The budget is a generous ceiling, not part
+    of the compared artifact, and exhausting it — like any resource limit —
+    is *abstention*, never evidence against a claim: only a completed run
+    whose result mismatches, or a trap, refutes. A witness minted under one
+    engine's accounting therefore stays valid under every other."""
 
     def invoke(
         self,
@@ -48,6 +59,7 @@ class Invoker(Protocol):
         args: Sequence[Any],
         *,
         timeout: float | None = DEFAULT_INVOKE_TIMEOUT,
+        budget: int | None = None,
     ) -> Any:
         """Call ``function`` exported by the component at ``component`` with
         ``args`` (JSON-shaped Python values), returning the JSON-shaped result.
@@ -62,6 +74,7 @@ class Invoker(Protocol):
         args_wave: str,
         *,
         timeout: float | None = DEFAULT_INVOKE_TIMEOUT,
+        budget: int | None = None,
     ) -> str:
         """Like :meth:`invoke`, but the arguments arrive as a ready WAVE
         argument list (:func:`desmata.wave.encode_args`) and the result is the
@@ -97,9 +110,11 @@ class WasmtimeCli(Tool, Invoker):
         args: Sequence[Any],
         *,
         timeout: float | None = DEFAULT_INVOKE_TIMEOUT,
+        budget: int | None = None,
     ) -> Any:
         raw = self.invoke_raw(
-            component, function, wave.encode_args(args), timeout=timeout
+            component, function, wave.encode_args(args), timeout=timeout,
+            budget=budget,
         )
         return wave.decode(raw)
 
@@ -110,12 +125,16 @@ class WasmtimeCli(Tool, Invoker):
         args_wave: str,
         *,
         timeout: float | None = DEFAULT_INVOKE_TIMEOUT,
+        budget: int | None = None,
     ) -> str:
         expr = f"{function}({args_wave})"
         # -C cache=n: no cache dir writes, so calls are hermetic wherever HOME
-        # points (the same flags the flake checks pin down).
+        # points (the same flags the flake checks pin down). -W fuel=N is
+        # wasmtime's rendering of the contract's metering ceiling.
+        fuel = [] if budget is None else ["-W", f"fuel={budget}"]
         out = self(
-            "run", "-C", "cache=n", "--invoke", expr, str(Path(component).resolve()),
+            "run", "-C", "cache=n", *fuel,
+            "--invoke", expr, str(Path(component).resolve()),
             timeout=timeout,
         )
         return out.strip()
