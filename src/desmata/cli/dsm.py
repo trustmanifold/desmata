@@ -268,10 +268,38 @@ def publish(
     typer.echo("Peers can fetch it by hash while `dsm serve` is running here.")
 
 
+class OutputFormat(str, Enum):
+    """How ``dsm anatomy`` renders. ``text`` is the human table; ``json`` is
+    the machine shape the nu_plugin_desmata shim maps into a nushell table
+    (and that plain nushell can consume with ``from json``); ``auto`` picks
+    json when we're running under nushell, else text."""
+
+    auto = "auto"
+    text = "text"
+    json = "json"
+
+
+def _resolve_output(fmt: OutputFormat) -> OutputFormat:
+    """Resolve ``auto``: nushell exports ``NU_VERSION`` into the environment of
+    the commands it launches, so its presence means a nushell is in our
+    ancestry -- give it structured json. A plain sh/bash caller has no
+    ``NU_VERSION`` and gets the readable text fallback."""
+    if fmt is not OutputFormat.auto:
+        return fmt
+    return OutputFormat.json if os.environ.get("NU_VERSION") else OutputFormat.text
+
+
 @app.command()
 def anatomy(
     cell_dir: Path = typer.Argument(
         ..., help="the cell's directory (contains cell.py, flake.nix, flake.lock)"
+    ),
+    output: OutputFormat = typer.Option(
+        OutputFormat.auto,
+        "--output",
+        "-o",
+        case_sensitive=False,
+        help="text (human) | json (structured) | auto (json under nushell, else text)",
     ),
 ):
     """Show a cell directory's nucleus/membrane split and artifact pins.
@@ -282,27 +310,59 @@ def anatomy(
     cell; artifact pins name the exact blob bytes the nucleus commits to.
     """
     cell_dir = Path(cell_dir).resolve()
+    fmt = _resolve_output(output)
     missing_core = [n for n in NUCLEUS if not (cell_dir / n).is_file()]
     if missing_core:
-        typer.echo(f"not a cell: {cell_dir} is missing {', '.join(missing_core)}")
+        if fmt is OutputFormat.json:
+            typer.echo(
+                json.dumps(
+                    {
+                        "error": "not a cell",
+                        "cell_dir": str(cell_dir),
+                        "missing": missing_core,
+                    }
+                )
+            )
+        else:
+            typer.echo(f"not a cell: {cell_dir} is missing {', '.join(missing_core)}")
         raise typer.Exit(code=1)
+
+    # One data pass, two renderings: the json shape mirrors the text sections
+    # so a reader (human or nushell) sees the same nucleus/membrane/pins split.
+    nucleus = [
+        {"name": name, "present": (cell_dir / name).is_file()}
+        for name in nucleus_names(cell_dir)
+    ]
+    membrane = [p.relative_to(cell_dir).as_posix() for p in membrane_files(cell_dir)]
+    pins = [{"name": name, "pin": str(pin)} for name, pin in artifact_pins(cell_dir).items()]
+
+    if fmt is OutputFormat.json:
+        typer.echo(
+            json.dumps(
+                {
+                    "cell_dir": str(cell_dir),
+                    "nucleus": nucleus,
+                    "membrane": membrane,
+                    "artifact_pins": pins,
+                }
+            )
+        )
+        return
 
     typer.echo(f"Anatomy of {cell_dir}:")
     typer.echo("  nucleus (stable core; the nucleus hash covers exactly these):")
-    for name in nucleus_names(cell_dir):
-        note = "" if (cell_dir / name).is_file() else "   (declared but missing)"
-        typer.echo(f"    {name}{note}")
+    for entry in nucleus:
+        note = "" if entry["present"] else "   (declared but missing)"
+        typer.echo(f"    {entry['name']}{note}")
     typer.echo("  membrane (forkable; travels with the cell, cell hash covers it):")
-    membrane = membrane_files(cell_dir)
     if not membrane:
         typer.echo("    (empty)")
     for path in membrane:
-        typer.echo(f"    {path.relative_to(cell_dir).as_posix()}")
-    pins = artifact_pins(cell_dir)
+        typer.echo(f"    {path}")
     if pins:
         typer.echo("  artifact pins (blob bytes the nucleus commits to):")
-        for name, pin in pins.items():
-            typer.echo(f"    {name}  {pin}")
+        for entry in pins:
+            typer.echo(f"    {entry['name']}  {entry['pin']}")
 
 
 @app.command()

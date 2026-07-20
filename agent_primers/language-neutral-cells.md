@@ -110,6 +110,10 @@ A binding has two layers, and separating them buys a verifiability win:
   `builds_to`-style verifiable relationship for bindings, not a trust-me. Raw
   generated bindings arguably need not even be committed (regenerable on
   demand); committing them is a convenience for users without the toolchain.
+  This edge is exactly the general case worked out in
+  [derivation-manifest.md](./derivation-manifest.md): a generated binding is a
+  `generates_to(component.wit, bindgen, languages/<lang>/)` edge, so
+  "verifiable-by-regeneration" is not a hand-wave but a concrete claim.
 - **Veneer layer** — authored ergonomic sugar no bindgen emits (gnize-cell's
   `fingerprints_json`, a composition helper). This is genuine membrane content,
   audited as a diff.
