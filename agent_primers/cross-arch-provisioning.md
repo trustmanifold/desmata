@@ -3,7 +3,9 @@
 **Status:** design note. Not scheduled — a deferred row in both roadmaps
 (desmata `agent_primers/whats-next.md` §5, SP `docs/ROADMAP.md` §5). Extends
 [derivation-manifest.md](./derivation-manifest.md) — it walks the same DAG —
-through the partition-tolerance / disaster-preparedness lens. Read
+through the partition-tolerance / disaster-preparedness lens. Its §4 per-`system`
+split is the second design law's keying rule (SP `docs/design/projection.md`,
+checklist item 3) applied to the architecture axis. Read
 [lightweight-cells.md](./lightweight-cells.md) (wasm portability + WAVE
 determinism), derivation-manifest.md, and [interface-palette.md](./interface-palette.md)
 (the projection pattern) first.

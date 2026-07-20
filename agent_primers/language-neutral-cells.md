@@ -4,7 +4,9 @@
 (desmata `agent_primers/whats-next.md` §5, SP `docs/ROADMAP.md` §5). This is
 the *at-rest* (repo-layout) cash-out of the interface-palette manifest
 ([interface-palette.md](./interface-palette.md) §4); the *in-flight* (gossip)
-half is the `interface/v1` palette, already landed (§3.1–3.3).
+half is the `interface/v1` palette, already landed (§3.1–3.3). An instance of
+the second design law (SP `docs/design/projection.md`): the manifest projects
+structure the flake already commits to, not invented asserted metadata.
 
 **Audience:** whoever touches `interface.py`, `cell_archive.py`, or a cell
 repo's layout. Read [nucleus-membrane.md](./nucleus-membrane.md) first — its

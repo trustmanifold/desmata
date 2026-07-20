@@ -23,6 +23,18 @@ against Y. Confirmation outranks trust on the SP side; trust is the
 fallback that lets a reader accept the memoized answer because peers they
 trust already re-executed it.
 
+**The method**, made explicit as two design laws (canonical in SP
+`docs/design/`): new dynamics are palette colors/rules/facets, never host
+policy (`interest_and_sync.md` §1); and a verifiable claim is a *projection* of
+structure the artifact already commits to — the WIT in the component bytes, the
+derivation graph in the flake, the engine's canonical rendering of a call —
+never invented metadata an author asserts (`projection.md`). `evaluates_to` is
+the seed; the interface witness (§3) and the deferred cell notes
+([language-neutral-cells.md](./language-neutral-cells.md),
+[derivation-manifest.md](./derivation-manifest.md),
+[cross-arch-provisioning.md](./cross-arch-provisioning.md)) are the same move
+repeated — the WIT half already landed, the flake half deferred.
+
 **Where it stands:** proven whole, in a repeatable artifact — SP's
 `scenarios/memoized_call.yaml` (landed 2026-07-17, §1), in SP's full
 pytest tier and replayable in the viewer. Ingest-time signature

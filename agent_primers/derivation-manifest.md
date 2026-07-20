@@ -5,7 +5,9 @@
 [language-neutral-cells.md](./language-neutral-cells.md): both are about *what a
 cell advertises about itself*. The verifier half is the deferred `nix` runner;
 the trust model is [trustix-interop.md](./trustix-interop.md); the projection
-pattern is the interface palette ([interface-palette.md](./interface-palette.md)).
+pattern is the interface palette ([interface-palette.md](./interface-palette.md)),
+and its general statement is the second design law (SP `docs/design/projection.md`)
+— this note projects the flake's derivation graph exactly as §3 projects the WIT.
 
 **Audience:** whoever touches SP's reproducibility palette / `verify/*`,
 `cell_archive.py` / `interface.py`, or a `cell.toml`. Read nucleus-membrane.md,
