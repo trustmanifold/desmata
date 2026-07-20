@@ -68,9 +68,20 @@ same-key/different-value conflict machinery.
    `dsm paint` ships the strokes with everything else — no new pipeline.
    Residual: a `dsm publish` verb for cells never called locally (the
    function already supports it, no CLI verb yet).
-4. **Typed DataRefs.** When SP extends `DataRef` beyond `{hash, suite}`
-   (type ref + size, atproto's blob lesson), `paint.post_put_data` and
-   the outbox metadata carry them. (SP ROADMAP §3.3, still open.)
+4. **Typed DataRefs. LANDED (2026-07-20).** SP extended `DataRef` beyond
+   `{hash, suite}` with `type_ref`/`mime_type`/`size` (atproto's blob
+   lesson, SP ROADMAP §3.3). Our share is the consumer's: `post_put_data`
+   returns the whole DataRef the node minted (not just its hash), and
+   `ship_blobs` cross-checks the node-reported `size` against the bytes we
+   shipped — the same round-trip discipline as the hash, and tolerant of an
+   older node that omits it (the §2.2 forward-compat posture from the
+   reader's side). We do not yet *produce* a typed DataRef: X and Y still
+   travel inline as WAVE in the stroke args, and the outbox holds only
+   opaque component blobs (`application/wasm`, which the node can't infer
+   from bytes anyway). Attaching a `type_ref` to a shipped *value* blob is
+   demo-v2 work — it wants a value that travels by content-address rather
+   than inline, which is the composition dataflow (§3 close / SP §3.3
+   "why after the demo").
 5. **Surface the free win:** confirmed `evaluates_to` strokes are
    verified worked examples of valid inputs for `(C, F)` — the
    memoization cache doubles as usage documentation. Tooling (`dsm`

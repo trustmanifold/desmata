@@ -103,7 +103,7 @@ class _StubNode:
     real request shapes, derives content ids (publish) and blob hashes
     (put_data) the way spd's store does, and echoes them back."""
 
-    def __init__(self, placed_override=None, blob_hash_override=None):
+    def __init__(self, placed_override=None, blob_hash_override=None, blob_size_override=None):
         self.requests: list[dict] = []
         self.blobs: dict[str, bytes] = {}
         outer = self
@@ -123,9 +123,17 @@ class _StubNode:
                     data = base64.b64decode(decoded["bytes_b64"])
                     digest = blob_hash_override or hashlib.sha256(data).hexdigest()
                     outer.blobs[digest] = data
-                    payload = json.dumps(
-                        {"ref": {"hash": digest, "suite": "sha256"}}
-                    ).encode()
+                    # The real spd node fills in `size` on the DataRef it
+                    # returns (SP ROADMAP §3.3); the stub mirrors that so the
+                    # ship_blobs cross-check is exercised.
+                    ref = {"hash": digest, "suite": "sha256"}
+                    if blob_size_override != "omit":
+                        ref["size"] = (
+                            blob_size_override
+                            if blob_size_override is not None
+                            else len(data)
+                        )
+                    payload = json.dumps({"ref": ref}).encode()
                 else:
                     raise AssertionError(f"unexpected POST {self.path}")
                 self.send_response(200)
@@ -334,6 +342,27 @@ def test_ship_blobs_refuses_a_disagreeing_node(tmp_path: Path):
     with _StubNode(blob_hash_override="not-sha256-of-the-bytes") as node:
         with pytest.raises(PublishMismatch):
             ship_blobs(files, node.url)
+
+
+def test_ship_blobs_refuses_a_size_mismatch(tmp_path: Path):
+    # A node that acknowledges the right hash but a wrong size is disagreeing
+    # about the very bytes it claims to hold — the typed-DataRef size (§3.3)
+    # gets the same round-trip discipline as the hash.
+    files = _files(tmp_path)
+    stash_blob(files, b"component-a")
+    with _StubNode(blob_size_override=999) as node:
+        with pytest.raises(PublishMismatch):
+            ship_blobs(files, node.url)
+
+
+def test_ship_blobs_tolerates_a_node_without_size(tmp_path: Path):
+    # An older node that only knows {hash, suite} omits size; ship_blobs must
+    # not require it (forward-compat from the consumer's side).
+    files = _files(tmp_path)
+    a = stash_blob(files, b"component-a")
+    with _StubNode(blob_size_override="omit") as node:
+        shipped = ship_blobs(files, node.url)
+    assert shipped == [a]
 
 
 def test_ship_blobs_with_empty_outbox_makes_no_request(tmp_path: Path):

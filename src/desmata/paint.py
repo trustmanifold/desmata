@@ -262,19 +262,34 @@ def ship_blobs(files: UserspaceFiles, node_url: str, timeout: float = 30.0) -> l
         return []
     shipped: list[str] = []
     for path in sorted(directory.iterdir()):
-        placed = post_put_data(node_url, path.read_bytes(), timeout=timeout)
-        if placed != path.name:
+        data = path.read_bytes()
+        ref = post_put_data(node_url, data, timeout=timeout)
+        if ref["hash"] != path.name:
             raise PublishMismatch(
                 f"node at {node_url} stored a blob we address as {path.name} "
-                f"under {placed}: one of us is not hashing sha256 over the bytes"
+                f"under {ref['hash']}: one of us is not hashing sha256 over the bytes"
             )
-        shipped.append(placed)
+        # Typed-DataRef cross-check (SP ROADMAP §3.3): when the node reports a
+        # `size`, it must equal the bytes we shipped — the same round-trip
+        # discipline as the hash, extended to the descriptive field. Absent
+        # (an older node that only knows `{hash, suite}`) we simply don't
+        # check it, the forward-compat posture.
+        size = ref.get("size")
+        if size is not None and size != len(data):
+            raise PublishMismatch(
+                f"node at {node_url} reports size {size} for blob {path.name} "
+                f"but we shipped {len(data)} bytes: the DataRef size disagrees"
+            )
+        shipped.append(ref["hash"])
     return shipped
 
 
-def post_put_data(node_url: str, data: bytes, timeout: float = 30.0) -> str:
-    """POST bytes to the node's put_data endpoint; returns the hash of the
-    DataRef the node stored them under."""
+def post_put_data(node_url: str, data: bytes, timeout: float = 30.0) -> dict:
+    """POST bytes to the node's put_data endpoint; returns the DataRef the node
+    stored them under — its `hash`/`suite`, plus any typed-DataRef metadata the
+    node filled in (`size`, and later `type_ref`/`mime_type`; SP ROADMAP §3.3).
+    Unknown fields are ignored, so a newer node's richer DataRef stays safe to
+    read (the §2.2 forward-compat rule, from the consumer's side)."""
     body = json.dumps(
         {"bytes_b64": base64.b64encode(data).decode()},
         separators=(",", ":"),
@@ -286,4 +301,4 @@ def post_put_data(node_url: str, data: bytes, timeout: float = 30.0) -> str:
         method="POST",
     )
     with urllib.request.urlopen(request, timeout=timeout) as response:
-        return json.loads(response.read())["ref"]["hash"]
+        return json.loads(response.read())["ref"]

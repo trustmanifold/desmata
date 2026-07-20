@@ -153,7 +153,21 @@ nothing and the evaluation witness stands alone (the *absent → trust fallback*
 posture SP's node mirrors). Deferred within the row: a `dsm publish` verb
 (minting interface facts for a never-called cell — `witness_interface` already
 supports it), and surfacing confirmed `evaluates_to` as usage docs (primer
-§3 item 5). §3.3 typed DataRefs is the remaining [both] piece.
+§3 item 5). §3.3 typed DataRefs LANDED 2026-07-20 — closing §3.
+
+**§3.3 typed DataRefs LANDED 2026-07-20** (SP + desmata). SP grew `DataRef`
+from `{hash, suite}` to also carry `type_ref` (a `type_def` hash), `mime_type`
+(opaque data), and `size` — all optional, so a bare ref still decodes and
+none of it enters any signed record's canonical bytes (the fields are
+descriptive, and `type_ref` is a *self-checkable* hint: confirm it via the
+`type_def` color, don't trust it). Our share is the consumer's:
+`paint.post_put_data` now returns the whole DataRef the node minted, and
+`ship_blobs` cross-checks the node-reported `size` against the bytes shipped —
+the hash round-trip discipline extended to the new field, tolerant of an older
+node that omits it. Not yet produced from our side: a value X/Y travels inline
+as WAVE, and the outbox holds only opaque component blobs, so attaching a
+`type_ref` to a shipped value is demo-v2 work (a value moving by
+content-address, i.e. the composition dataflow below).
 
 Design: [interface-palette.md](./interface-palette.md) (desmata's half);
 canonical doc in SP `docs/design/interface_palette.md`. The problem:
