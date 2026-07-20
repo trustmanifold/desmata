@@ -125,6 +125,19 @@ SP consumes desmata via a `git+file` flake input pinned to this repo's
 
 ## 3. Next: the interface palette [both]
 
+**SP §3.1 LANDED 2026-07-20** (SP ROADMAP §3.1): the `interface/v1` palette
+ships, `wit-parse` confirms `type_def` as a preimage-hash check and `exports`
+by shelling to `wasm-tools component wit --json` and comparing canonical type
+hashes, and `compatible` derives from `exports` strokes sharing a type hash.
+It **pins the canonical WIT text projection** (SP
+`docs/design/interface_palette.md` §4: F is the bare function name — as in
+`evaluates_to`; params names-dropped; resolved-type text inlines
+primitives/list/record and abstains on the rest; sha256 of that text is the
+`type_def` hash). **The §3.2 witness below must conform to that projection** —
+same discipline as `invoke.py`/`wave.py`, both sides shelling to the same
+version-pinned `wasm-tools` so hashes agree (SP validates this with
+fixtures captured from the gnize/sha256 cells).
+
 Design: [interface-palette.md](./interface-palette.md) (desmata's half);
 canonical doc in SP `docs/design/interface_palette.md`. The problem:
 cross-cell wiring leans on Python type hints — nothing language-agnostic
