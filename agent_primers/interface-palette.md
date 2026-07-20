@@ -109,6 +109,13 @@ many; the manifest is the contract. Kinds already in sight:
   playground (SP `docs/design/scenario_runner.md`), whose runner cell's
   declared interface is `browser`.
 
+The manifest's *at-rest* form (a `cell.toml` at the repo root that replaces
+`cell.py` in the nucleus, with per-language bindings demoted to a
+`languages/` membrane folder) is worked out in
+[language-neutral-cells.md](./language-neutral-cells.md) — the repo-layout
+cash-out of this section, deferred until a second language wants first-class
+cell access.
+
 Same discipline as runners and arg types: each kind keeps its *native*
 spec (WIT stays WIT, OpenAPI stays OpenAPI — no universal IDL), the kind
 vocabulary is a closed enumeration per version, and an unknown kind fails
