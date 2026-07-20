@@ -123,7 +123,7 @@ SP consumes desmata via a `git+file` flake input pinned to this repo's
   `paint.py`'s hand-built stroke shapes still match; adopting the
   generated schema stays a §5 wake-up.
 
-## 3. Next: the interface palette [both]
+## 3. The interface palette [both] — §3.1 + §3.2 LANDED 2026-07-20
 
 **SP §3.1 LANDED 2026-07-20** (SP ROADMAP §3.1): the `interface/v1` palette
 ships, `wit-parse` confirms `type_def` as a preimage-hash check and `exports`
@@ -133,10 +133,27 @@ It **pins the canonical WIT text projection** (SP
 `docs/design/interface_palette.md` §4: F is the bare function name — as in
 `evaluates_to`; params names-dropped; resolved-type text inlines
 primitives/list/record and abstains on the rest; sha256 of that text is the
-`type_def` hash). **The §3.2 witness below must conform to that projection** —
-same discipline as `invoke.py`/`wave.py`, both sides shelling to the same
-version-pinned `wasm-tools` so hashes agree (SP validates this with
-fixtures captured from the gnize/sha256 cells).
+`type_def` hash).
+
+**§3.2 the witness LANDED 2026-07-20** (desmata): `dsm call` mints
+`type_def`/`exports` strokes beside `evaluates_to`. A `WitExtractor` seam
+(`wit.py`, beside the `Invoker` seam) shells the cell's pinned `wasm-tools`
+(a new `.#wasm-tools` flake output, sibling to `.#wasmtime`), and
+`wit.canonical_signature` — a faithful port of SP's `wit.gleam` — renders the
+called function's signature, which `paint.interface_strokes` hashes into
+strokes and `witness_interface` writes to the ledger + outbox for the next
+`dsm paint`. Cross-repo agreement is **proven, not asserted**: `test_wit.py`
+runs the renderer over the *same* `wasm-tools --json` fixtures SP's runner
+tests use (`test/fixtures/{gnize,sha256}_wit.json`) to the identical canonical
+texts, and a live `dsm`-path extraction reproduces those fixture bytes exactly
+— so the type hashes both sides mint are byte-equal, the discipline
+`invoke.py`/`wave.py` keep for values kept here for types. Graceful-optional:
+a cell flake without `wasm-tools`, or a non-projectable interface, mints
+nothing and the evaluation witness stands alone (the *absent → trust fallback*
+posture SP's node mirrors). Deferred within the row: a `dsm publish` verb
+(minting interface facts for a never-called cell — `witness_interface` already
+supports it), and surfacing confirmed `evaluates_to` as usage docs (primer
+§3 item 5). §3.3 typed DataRefs is the remaining [both] piece.
 
 Design: [interface-palette.md](./interface-palette.md) (desmata's half);
 canonical doc in SP `docs/design/interface_palette.md`. The problem:

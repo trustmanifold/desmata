@@ -33,15 +33,20 @@ from desmata.paint import (
     ship_blobs,
     sign_all,
     stash_blob,
+    witness_interface,
     witnessed_call,
 )
 from desmata.provenance import (
     SP_EVALUATES_TO,
+    SP_EXPORTS,
+    SP_INTERFACE_PALETTE,
     SP_REPRODUCIBILITY_PALETTE,
+    SP_TYPE_DEF,
     Brushstroke,
     load_brushstrokes,
     save_brushstrokes,
 )
+from desmata.wit import WitUnavailable
 
 
 def _files(tmp_path: Path) -> DesmataFiles:
@@ -240,6 +245,72 @@ def test_witnessed_call_mints_an_evaluates_to_claim(tmp_path: Path):
     assert stroke in load_brushstrokes(files)
     # and the bytes the claim dereferences sit in the outbox under their hash
     assert (blob_dir(files) / expected_hash).read_bytes() == b"pretend-component-bytes"
+
+
+# --- witnessing interfaces (interface/v1) -------------------------------------
+
+# A WIT world with one exported function over a list<u8> -> string signature,
+# the shape `wasm-tools component wit --json` produces (the real-fixture
+# agreement is pinned in test_wit.py).
+_WIT_JSON = json.dumps(
+    {
+        "worlds": [{"exports": {"e": {"interface": {"id": 0}}}}],
+        "interfaces": [{"functions": {
+            "digest": {"params": [{"name": "data", "type": 0}], "result": "string"},
+        }}],
+        "types": [{"kind": {"list": "u8"}}],
+    }
+)
+
+
+class _StubExtractor:
+    """A WitExtractor whose JSON is scripted — the wasm-tools shell-out's
+    stand-in, exactly as _ScriptedEngine stands in for the wasmtime CLI."""
+
+    def __init__(self, wit_json: str | None = _WIT_JSON):
+        self.wit_json = wit_json
+        self.calls: list[Path] = []
+
+    def extract(self, component, *, timeout=None) -> str:
+        self.calls.append(Path(component))
+        if self.wit_json is None:
+            raise WitUnavailable("scripted: no wasm-tools")
+        return self.wit_json
+
+
+def test_witness_interface_mints_interface_strokes(tmp_path: Path):
+    files = _files(tmp_path)
+    component = tmp_path / "component.wasm"
+    component.write_bytes(b"pretend-component-bytes")
+
+    strokes = witness_interface(files, _StubExtractor(), component, "digest")
+
+    params_t = hashlib.sha256(b"(list<u8>)").hexdigest()
+    result_t = hashlib.sha256(b"string").hexdigest()
+    kinds = {(s.color, s.args) for s in strokes}
+    assert kinds == {
+        (SP_TYPE_DEF, (params_t, "(list<u8>)")),
+        (SP_TYPE_DEF, (result_t, "string")),
+        (SP_EXPORTS, (hashlib.sha256(b"pretend-component-bytes").hexdigest(), "digest", params_t, result_t)),
+    }
+    assert all(s.palette == SP_INTERFACE_PALETTE for s in strokes)
+    # witnessed into the ledger and the component stashed for the next paint
+    ledger = load_brushstrokes(files)
+    assert all(s in ledger for s in strokes)
+    expected_hash = hashlib.sha256(b"pretend-component-bytes").hexdigest()
+    assert (blob_dir(files) / expected_hash).exists()
+
+
+def test_witness_interface_abstains_when_extractor_unavailable(tmp_path: Path):
+    files = _files(tmp_path)
+    component = tmp_path / "component.wasm"
+    component.write_bytes(b"pretend-component-bytes")
+
+    # no wasm-tools (WitUnavailable): mint nothing, don't raise — the component
+    # bytes are still stashed (a later extractor could witness them)
+    assert witness_interface(files, _StubExtractor(wit_json=None), component, "digest") == []
+    assert load_brushstrokes(files) == []
+    assert (blob_dir(files) / hashlib.sha256(b"pretend-component-bytes").hexdigest()).exists()
 
 
 # --- shipping blobs -----------------------------------------------------------

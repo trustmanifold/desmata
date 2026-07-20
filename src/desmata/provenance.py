@@ -80,6 +80,23 @@ SP_REFERENCES = "references"  # references(StorePath [key], Dep [value]) — a c
 # (its cell-wasm runner re-invokes and compares exact).
 SP_EVALUATES_TO = "evaluates_to"
 
+# The interface palette (SP ROADMAP §3.2, agent_primers/interface-palette.md):
+# a component's WIT world projected into gossip as verifiable brushstrokes,
+# minted beside `evaluates_to` (:mod:`desmata.wit`, :func:`desmata.paint.
+# witness_interface`). Verified SP-side by the `wit-parse` runner — fetch the
+# component, re-derive the canonical WIT text, compare hashes; no execution.
+SP_INTERFACE_PALETTE = "interface/v1"
+# type_def(T [key], WitText [value]): T = sha256-hex of the canonical WIT type
+# text, which the stroke carries as its own preimage — so any node confirms it
+# offline, no blob needed.
+SP_TYPE_DEF = "type_def"
+# exports(Component [key], Function [key], ParamsT [value], ResultT [value]):
+# the same component sha256 `evaluates_to` carries, the bare WIT function name,
+# and the type_def hashes of its param tuple and result. A hash-equality join
+# over these is SP's derived `compatible` fact — structural typing stays in WIT
+# tooling, Datalog only ever compares hashes.
+SP_EXPORTS = "exports"
+
 # SP's brushstroke crypto suite (spd/node/state.gleam). The desmata peer key is
 # an ed25519 key, so a desmata-authored stroke signs under the same suite.
 SP_SUITE = "v1-ed25519-sha256"

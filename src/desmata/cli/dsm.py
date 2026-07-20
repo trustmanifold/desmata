@@ -1,6 +1,7 @@
 import contextlib
 import json
 import os
+import subprocess
 import sys
 import tempfile
 from enum import Enum
@@ -35,7 +36,8 @@ from desmata.content import Hash
 from desmata.exceptions import ArtifactPinMismatch, CellUnavailable, PublishMismatch
 from desmata.invoke import build_invoker
 from desmata.keys import peer_key
-from desmata.paint import publish_strokes, ship_blobs, witnessed_call
+from desmata.paint import publish_strokes, ship_blobs, witness_interface, witnessed_call
+from desmata.wit import build_wit_extractor
 from desmata.cli.common import cli_logger
 from desmata.serve import DaemonFailed, serve_forever
 from desmata.fs import DesmataFiles
@@ -455,6 +457,19 @@ def call(
             result, _ = witnessed_call(
                 factory.userspace, invoker, cell_dir / artifact, function, parsed_args
             )
+            # and, when the cell's flake pins wasm-tools, project this
+            # function's WIT interface into interface/v1 strokes beside the
+            # evaluation (SP ROADMAP §3.2). Absent wasm-tools, skip silently —
+            # the evaluation witness stands alone, the *absent → trust fallback*
+            # posture the SP node mirrors.
+            try:
+                extractor = build_wit_extractor(context)
+            except subprocess.CalledProcessError:
+                extractor = None
+            if extractor is not None:
+                witness_interface(
+                    factory.userspace, extractor, cell_dir / artifact, function
+                )
 
     typer.echo(json.dumps(result))
 

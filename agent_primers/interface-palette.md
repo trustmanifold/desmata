@@ -47,26 +47,34 @@ interface claims get the same confirmation-outranks-trust treatment as
 evaluations, and a lying interface collides with an honest one under the
 same-key/different-value conflict machinery.
 
-## 3. desmata work items, when this is picked up
+## 3. desmata work items — 1–3 LANDED 2026-07-20
 
-1. **Canonical WIT text.** The determinism spec (whitespace, ordering,
-   name resolution) is the real design work — pin it the way `wave.py`
-   pins WAVE⇄JSON and `invoke.py` pins raw-result capture, with byte
-   vectors shared with SP's runner tests. desmata is the reference
-   implementation of the contract, per SP's runner philosophy.
-2. **Extraction.** A `wit` seam beside the `Invoker` seam — reference
-   impl shells `wasm-tools` (pinned in the cell's flake like `wasmtime`
-   is); same offline, zero-capability posture.
-3. **Witnessing.** `witnessed_call` (and `dsm publish` for cells never
-   called locally) mints `type_def`/`exports` strokes into the same
-   ledger; `dsm paint` ships them with everything else — no new pipeline.
+1. **Canonical WIT text. LANDED.** The projection landed on the SP side
+   first (§3.1, `docs/design/interface_palette.md` §4); `wit.py`'s
+   `canonical_signature` is a faithful port and the *reference
+   implementation* of the contract in Python, pinned the way `wave.py`
+   pins WAVE⇄JSON — with byte vectors **shared** with SP's runner tests
+   (`test/fixtures/{gnize,sha256}_wit.json`, run to identical canonical
+   texts on both sides; a live `dsm`-path extraction reproduces the
+   committed fixture bytes exactly, so hashes agree byte-for-byte).
+2. **Extraction. LANDED.** `wit.WitExtractor`, a seam beside `Invoker`;
+   the reference impl `WasmToolsCli` shells the cell's pinned `wasm-tools`
+   (a new `.#wasm-tools` flake output, sibling to `.#wasmtime`), same
+   offline, zero-capability, read-only posture — a parse, never an
+   execution. Absent → `WitUnavailable` → abstain (trust fallback).
+3. **Witnessing. LANDED** (the `dsm call` path). `witness_interface`
+   mints `type_def`/`exports` strokes into the same ledger and stashes the
+   component in the outbox; `dsm call` calls it after `witnessed_call`, and
+   `dsm paint` ships the strokes with everything else — no new pipeline.
+   Residual: a `dsm publish` verb for cells never called locally (the
+   function already supports it, no CLI verb yet).
 4. **Typed DataRefs.** When SP extends `DataRef` beyond `{hash, suite}`
    (type ref + size, atproto's blob lesson), `paint.post_put_data` and
-   the outbox metadata carry them.
+   the outbox metadata carry them. (SP ROADMAP §3.3, still open.)
 5. **Surface the free win:** confirmed `evaluates_to` strokes are
    verified worked examples of valid inputs for `(C, F)` — the
    memoization cache doubles as usage documentation. Tooling (`dsm`
-   query or SP-side view) should present them as such.
+   query or SP-side view) should present them as such. (Unbuilt.)
 
 ## 4. Keep the door open: WIT is an interface *kind*, not the interface
 
