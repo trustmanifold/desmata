@@ -1,0 +1,28 @@
+# The first rust in desmata: a thin nushell-plugin shim over the Python `dsm`.
+# It shells out to `dsm anatomy <dir> --output json` and maps the result into a
+# real nushell record/table, so `dsm anatomy` is structured data (pipe it into
+# `where`, `get nucleus`, ...) instead of text. The Python CLI stays the single
+# source of truth; this crate only translates its json into nushell Values.
+#
+# Version lock: nu-plugin/nu-protocol are pinned to the *minor* version of the
+# nushell this runs under (0.113.x, the pinned tools nixpkgs). A nushell minor
+# bump requires bumping these in lockstep and rebuilding -- see flake.nix.
+[package]
+name = "nu_plugin_desmata"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.96"
+description = "Nushell plugin exposing desmata's `dsm anatomy` as structured data"
+license = "MIT"
+
+[[bin]]
+name = "nu_plugin_desmata"
+path = "src/main.rs"
+
+[dependencies]
+nu-plugin = "0.113"
+nu-protocol = "0.113"
+serde_json = "1"
+
+[profile.release]
+strip = true

@@ -104,6 +104,11 @@ projected it.
   that can't reproduce **abstains** (`unavailable`); only a *deterministically*
   reproducible build that mismatches **refutes**. Nix is what buys the
   reproducibility, which is why cells being flake-built is the enabler.
+  Cross-*architecture* reproducibility is harder still and need not be solved:
+  [cross-arch-provisioning.md](./cross-arch-provisioning.md) §4 keys `builds_to`
+  by `system`, so per-system reproducibility (the tractable kind) is the
+  refutable invariant and a different-arch build is a distinct honest fact, not
+  a conflict.
 
 ## 6. Verification economics — why it leans on trust, and why that's the point
 
