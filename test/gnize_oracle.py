@@ -14,7 +14,9 @@ from pathlib import Path
 
 
 def native_gn(gnize_cell_src: Path) -> Path:
-    flake_url = f"git+file://{Path(gnize_cell_src).resolve()}"
+    # `path:` because the fixture is the dev shell's store copy of the cell
+    # (GNIZE_CELL_SRC), which is not a git checkout.
+    flake_url = f"path:{Path(gnize_cell_src).resolve()}"
     out = subprocess.run(
         [
             "nix", "--extra-experimental-features", "nix-command",

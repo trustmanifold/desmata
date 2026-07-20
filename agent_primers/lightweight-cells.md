@@ -217,14 +217,17 @@ why SP is the first app worth exchanging on a fledgling network.
 
 **gnize-cell** (committed): nucleus = gnize's flake recipe + extracted
 `component.wit` (with a wit-drift check) + artifact pin; the blob is committed
-with a `./repin` script. Test A (`pytest -m wasm`): publish → `from_hash` →
-fingerprints through the invoker → piped as JSON into nushell-cell's `math
-max` → equal to the Python max and to native `gn --json` built from the exact
-SemanticPaint rev the cell's lock pins. Its variant deletes the fetched blob,
-re-realizes via the recipe, verifies the pin, and checks the `builds_to`
-witness landed in provenance. The prerequisite hermetic `wasmtime --invoke`
-flake check lives in SemanticPaint (`gnize-wasm-invoke`) and guards the
-invocation path every runner depends on.
+with a `./repin` script. Gnize's Rust workspace lives at the cell root (the
+sha256-cell shape), so the cell is standalone — no special relationship to
+SemanticPaint, which consumes it like any pinned cell. Test A (`pytest -m
+wasm`): publish → `from_hash` → fingerprints through the invoker → piped as
+JSON into nushell-cell's `math max` → equal to the Python max and to native
+`gn --json` built from the cell's own recipe and lock. Its variant deletes
+the fetched blob, re-realizes via the recipe, verifies the pin, and checks
+the `builds_to` witness landed in provenance. The prerequisite hermetic
+`wasmtime --invoke` flake check lives in the cell repo itself
+(`invoke-smoke`, alongside `wit-drift`) and guards the invocation path every
+runner depends on.
 
 **runner-cell** (committed) is the §5 runner tier made real: a heavy cell
 whose build output is the light runner (static bundle, servable from any

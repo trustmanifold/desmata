@@ -21,11 +21,11 @@
     "gnize-cell": {
       "flake": false,
       "locked": {
-        "lastModified": 1783710470,
-        "narHash": "sha256-fmNp8RohKpdzJZTKob8+O/05UAIL2bztg/9Xvwc9qEk=",
+        "lastModified": 1784528068,
+        "narHash": "sha256-v9rlvduNOMewvSHkUVZGeI75JEmECgWnzUurjyo2dV0=",
         "ref": "refs/heads/main",
-        "rev": "133bfc3a6a9f0ca0e0f6f5281d10521c592d3aa9",
-        "revCount": 1,
+        "rev": "90b1dd22b28148a381eb9c5d6b66d1babb1d8e14",
+        "revCount": 2,
         "type": "git",
         "url": "file:///Users/matt/src/gnize-cell"
       },

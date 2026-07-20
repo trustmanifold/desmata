@@ -44,9 +44,11 @@ from desmata.higher_protocols import CellFactory
 from desmata.interface import NUCLEUS, NUCLEUS_DECLARATION, Cell
 from desmata.lower_protocols import CellHash, CellHashes, NucleusHash
 
-# packaging noise, never part of either hash
+# packaging noise, never part of either hash ("target": cargo's build dir,
+# left in-tree by `cargo build`/`cargo test` in cells that carry their Rust
+# workspace at the cell root, e.g. sha256-cell and gnize-cell)
 _IGNORE_FILES = {"__init__.py"}
-_IGNORE_DIRS = {"__pycache__"}
+_IGNORE_DIRS = {"__pycache__", "target"}
 
 
 class InvalidCell(ValueError):
@@ -80,9 +82,10 @@ def membrane_files(cell_dir: Path) -> list[Path]:
     walked recursively with deterministic ordering. These are the local,
     forkable parts of a cell -- and they travel with it (``pack_cell``).
 
-    Hidden files/dirs (``.git``, ``.envrc``, ...), ``__pycache__``, ``*.pyc``,
-    ``__init__.py``, and symlinks (a stray ``nix build`` ``result`` link) are
-    excluded: none of them belong in a content address."""
+    Hidden files/dirs (``.git``, ``.envrc``, ...), ``__pycache__``, cargo's
+    ``target/``, ``*.pyc``, ``__init__.py``, and symlinks (a stray
+    ``nix build`` ``result`` link) are excluded: none of them belong in a
+    content address."""
     cell_dir = Path(cell_dir)
     nucleus = set(nucleus_names(cell_dir))
     found: list[Path] = []

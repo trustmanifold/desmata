@@ -65,8 +65,11 @@ def test_nucleus_hash_is_invariant_to_membrane(
     nuc_before = nucleus_hash(ipfs, cell_dir)
     cell_before = cell_hash(ipfs, cell_dir)
 
-    # add/modify a membrane file (config) -- the forkable part
+    # add/modify a membrane file (config) -- the forkable part; build residue
+    # (cargo's target/) stays out of the membrane entirely
     (cell_dir / "config.txt").write_text("greeting = howdy\n")
+    (cell_dir / "target" / "release").mkdir(parents=True)
+    (cell_dir / "target" / "release" / "junk.bin").write_bytes(b"\x00")
     assert [p.name for p in membrane_files(cell_dir)] == ["config.txt"]
 
     # nucleus hash unchanged; cell hash changed
