@@ -23,6 +23,9 @@ from desmata.bootstrap import (
 from desmata.builtins.cell import DesmataBuiltins, Tools
 from desmata.cell_archive import (
     InvalidCell,
+    artifact_pins,
+    membrane_files,
+    nucleus_names,
     publish_cell,
     unpack_cell,
     verify_artifacts,
@@ -43,6 +46,7 @@ from desmata.inspect import (
     inspect_tool_nix,
     known_cells,
 )
+from desmata.interface import NUCLEUS
 from desmata.log import CliLoggers
 from desmata.nix import Nix
 from desmata.provenance import (
@@ -260,6 +264,43 @@ def publish(
     typer.echo("      └ just the stable core; shared by every fork that only edits the membrane")
     typer.echo("")
     typer.echo("Peers can fetch it by hash while `dsm serve` is running here.")
+
+
+@app.command()
+def anatomy(
+    cell_dir: Path = typer.Argument(
+        ..., help="the cell's directory (contains cell.py, flake.nix, flake.lock)"
+    ),
+):
+    """Show a cell directory's nucleus/membrane split and artifact pins.
+
+    Pure data access (agent_primers/nucleus-membrane.md): nothing is hashed,
+    published, or executed. The nucleus is the stable core the nucleus hash
+    covers; the membrane is the forkable rest, which still travels with the
+    cell; artifact pins name the exact blob bytes the nucleus commits to.
+    """
+    cell_dir = Path(cell_dir).resolve()
+    missing_core = [n for n in NUCLEUS if not (cell_dir / n).is_file()]
+    if missing_core:
+        typer.echo(f"not a cell: {cell_dir} is missing {', '.join(missing_core)}")
+        raise typer.Exit(code=1)
+
+    typer.echo(f"Anatomy of {cell_dir}:")
+    typer.echo("  nucleus (stable core; the nucleus hash covers exactly these):")
+    for name in nucleus_names(cell_dir):
+        note = "" if (cell_dir / name).is_file() else "   (declared but missing)"
+        typer.echo(f"    {name}{note}")
+    typer.echo("  membrane (forkable; travels with the cell, cell hash covers it):")
+    membrane = membrane_files(cell_dir)
+    if not membrane:
+        typer.echo("    (empty)")
+    for path in membrane:
+        typer.echo(f"    {path.relative_to(cell_dir).as_posix()}")
+    pins = artifact_pins(cell_dir)
+    if pins:
+        typer.echo("  artifact pins (blob bytes the nucleus commits to):")
+        for name, pin in pins.items():
+            typer.echo(f"    {name}  {pin}")
 
 
 @app.command()
