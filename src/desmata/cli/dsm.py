@@ -111,6 +111,31 @@ def _render_checks(results: list[ToolCheck]) -> bool:
     return all(r.ok for r in results)
 
 
+class OutputFormat(str, Enum):
+    """How a data command renders. ``text`` is the human view; ``json`` is the
+    machine shape the nu_plugin_desmata shim maps into nushell values (and that
+    plain nushell can consume with ``from json``); ``auto`` picks json when
+    we're running under nushell, else text."""
+
+    auto = "auto"
+    text = "text"
+    json = "json"
+
+
+def _resolve_output(fmt: OutputFormat) -> OutputFormat:
+    """Resolve ``auto``: nushell exports ``NU_VERSION`` into the environment of
+    the commands it launches, so its presence means a nushell is in our
+    ancestry -- give it structured json. A plain sh/bash caller has no
+    ``NU_VERSION`` and gets the readable text fallback."""
+    if fmt is not OutputFormat.auto:
+        return fmt
+    return OutputFormat.json if os.environ.get("NU_VERSION") else OutputFormat.text
+
+
+# The shared `--output` help string, so every data command reads the same.
+_OUTPUT_HELP = "text (human) | json (structured) | auto (json under nushell, else text)"
+
+
 @app.command()
 def ls(verbose: bool = typer.Option(False, "--verbose", "-v")):
     log = cli_logger(verbose=verbose)
@@ -118,22 +143,51 @@ def ls(verbose: bool = typer.Option(False, "--verbose", "-v")):
 
 
 @app.command()
-def check(verbose: bool = typer.Option(False, "--verbose", "-v")):
+def check(
+    verbose: bool = typer.Option(False, "--verbose", "-v"),
+    output: OutputFormat = typer.Option(
+        OutputFormat.auto, "--output", "-o", case_sensitive=False, help=_OUTPUT_HELP
+    ),
+):
     """Verify the trusted tools (nix, git) desmata depends on.
 
     Desmata does not manage these itself -- it assumes you installed them and
     only checks that their versions meet its expectations.
     """
     loggers = CliLoggers(verbose=verbose)
+    fmt = _resolve_output(output)
 
-    typer.echo("Checking the tools desmata trusts you to provide.")
-    typer.echo("(desmata relies on your installation of these; it does not manage them.)")
-    typer.echo("")
+    if fmt is OutputFormat.text:
+        typer.echo("Checking the tools desmata trusts you to provide.")
+        typer.echo("(desmata relies on your installation of these; it does not manage them.)")
+        typer.echo("")
 
     with _quieted(verbose):
         results = check_trusted_tools(loggers)
-    ok = _render_checks(results)
+    ok = all(r.ok for r in results)
 
+    if fmt is OutputFormat.json:
+        typer.echo(
+            json.dumps(
+                {
+                    "ok": ok,
+                    "tools": [
+                        {
+                            "name": r.name,
+                            "ok": r.ok,
+                            "detail": r.detail,
+                            "purpose": TOOL_PURPOSE.get(r.name, ""),
+                        }
+                        for r in results
+                    ],
+                }
+            )
+        )
+        if not ok:
+            raise typer.Exit(code=1)
+        return
+
+    _render_checks(results)
     typer.echo("")
     if ok:
         typer.echo("All trusted tools are present and conform. You're ready to bootstrap.")
@@ -268,38 +322,13 @@ def publish(
     typer.echo("Peers can fetch it by hash while `dsm serve` is running here.")
 
 
-class OutputFormat(str, Enum):
-    """How ``dsm anatomy`` renders. ``text`` is the human table; ``json`` is
-    the machine shape the nu_plugin_desmata shim maps into a nushell table
-    (and that plain nushell can consume with ``from json``); ``auto`` picks
-    json when we're running under nushell, else text."""
-
-    auto = "auto"
-    text = "text"
-    json = "json"
-
-
-def _resolve_output(fmt: OutputFormat) -> OutputFormat:
-    """Resolve ``auto``: nushell exports ``NU_VERSION`` into the environment of
-    the commands it launches, so its presence means a nushell is in our
-    ancestry -- give it structured json. A plain sh/bash caller has no
-    ``NU_VERSION`` and gets the readable text fallback."""
-    if fmt is not OutputFormat.auto:
-        return fmt
-    return OutputFormat.json if os.environ.get("NU_VERSION") else OutputFormat.text
-
-
 @app.command()
 def anatomy(
     cell_dir: Path = typer.Argument(
         ..., help="the cell's directory (contains cell.py, flake.nix, flake.lock)"
     ),
     output: OutputFormat = typer.Option(
-        OutputFormat.auto,
-        "--output",
-        "-o",
-        case_sensitive=False,
-        help="text (human) | json (structured) | auto (json under nushell, else text)",
+        OutputFormat.auto, "--output", "-o", case_sensitive=False, help=_OUTPUT_HELP
     ),
 ):
     """Show a cell directory's nucleus/membrane split and artifact pins.
@@ -557,13 +586,24 @@ def cells(
     home: Optional[Path] = typer.Option(
         None, "--home", help="inspect a sandboxed state dir instead of the XDG dirs"
     ),
+    output: OutputFormat = typer.Option(
+        OutputFormat.auto, "--output", "-o", case_sensitive=False, help=_OUTPUT_HELP
+    ),
 ):
     """List the cells desmata has local state for.
 
     Each cell keeps its runtime state in a home directory; `dsm clean` can reset
     it.
     """
+    fmt = _resolve_output(output)
     infos = list_cells(userspace(CliLoggers(), root=home))
+    if fmt is OutputFormat.json:
+        typer.echo(
+            json.dumps(
+                {"cells": [{"name": c.name, "size_bytes": c.size_bytes} for c in infos]}
+            )
+        )
+        return
     if not infos:
         typer.echo("No cells yet. Run `dsm bootstrap` to create the builtin cell.")
         return
@@ -771,6 +811,9 @@ def inspect(
     ),
     verbose: bool = typer.Option(False, "--verbose", "-v"),
     home: Optional[Path] = typer.Option(None, "--home"),
+    output: OutputFormat = typer.Option(
+        OutputFormat.auto, "--output", "-o", case_sensitive=False, help=_OUTPUT_HELP
+    ),
 ):
     """Show the structure of one tool inside a cell, one of two ways.
 
@@ -780,6 +823,7 @@ def inspect(
       dsm inspect builtins ipfs nix     # ipfs tool's store-path graph
       dsm inspect builtins ipfs ipfs    # ipfs tool's block DAG
     """
+    fmt = _resolve_output(output)
     cells = known_cells()
     CellType = cells.get(cell)
     if CellType is None:
@@ -821,6 +865,86 @@ def inspect(
                 ipfs = Tools.IPFS(root=Path(dep.root), context=ctx)
                 ipfs.init()
                 result = inspect_tool_ipfs(nix, ipfs, tool, dep, depth=depth)
+
+    if fmt is OutputFormat.json:
+        # The json mirrors each view's underlying data (nix graph edges, the
+        # trustix narinfo records, the derivation closure, or the ipfs merkle
+        # tree) rather than the indented text; the text renderers below are
+        # left untouched. Graphs are emitted as flat node lists with explicit
+        # reference edges (no infinite recursion on shared subtrees); the ipfs
+        # DAG is already a bounded, depth-limited tree, so it nests.
+        if view is InspectView.nix:
+            payload = {
+                "view": "nix",
+                "cell": cell,
+                "tool": tool,
+                "root": result.root_id,
+                "total_size": result.total_size,
+                "nodes": [
+                    {
+                        "id": node_id,
+                        "size": result.sizes.get(node_id, 0),
+                        "references": list(result.edges.get(node_id, [])),
+                    }
+                    for node_id in result.sizes
+                ],
+            }
+        elif view is InspectView.provenance:
+            payload = {
+                "view": "provenance",
+                "cell": cell,
+                "tool": tool,
+                "records": [
+                    {
+                        "path": r.path,
+                        "nar_hash": r.nar_hash,
+                        "nar_size": r.nar_size,
+                        "deriver": r.deriver,
+                        "references": list(r.references),
+                    }
+                    for r in result
+                ],
+            }
+        elif view is InspectView.drv:
+            payload = {
+                "view": "drv",
+                "cell": cell,
+                "tool": tool,
+                "root": drv_root,
+                "derivations": [
+                    {
+                        "drv": drv_path,
+                        "name": di.name,
+                        "system": di.system,
+                        "input_drvs": list(di.input_drvs),
+                        "input_srcs": list(di.input_srcs),
+                    }
+                    for drv_path, di in graph.items()
+                ],
+            }
+        else:
+
+            def _ipfs_node(n) -> dict:
+                return {
+                    "name": n.name,
+                    "cid": n.cid,
+                    "size": n.size,
+                    "kind": getattr(n, "kind", "dir"),
+                    "blocks": n.blocks,
+                    "truncated": getattr(n, "truncated", False),
+                    "children": [_ipfs_node(c) for c in n.children],
+                }
+
+            payload = {
+                "view": "ipfs",
+                "cell": cell,
+                "tool": tool,
+                "unique_blocks": result.unique_blocks,
+                "duplicates_eliminated": result.duplicates_eliminated,
+                "roots": [_ipfs_node(root) for root in result.roots],
+            }
+        typer.echo(json.dumps(payload))
+        return
 
     if view is InspectView.nix:
         typer.echo(f"Cell '{cell}', tool '{tool}' — nix store-path graph "
