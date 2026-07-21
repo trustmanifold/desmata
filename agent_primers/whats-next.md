@@ -192,13 +192,27 @@ verifiable `type_def`/`exports` brushstrokes (`interface/v1` palette,
 derived Datalog fact over content-addressed type hashes. Typed DataRefs
 (add type ref + size to `{hash, suite}`) ride along.
 
-**Why after the demo:** it rides exactly the pipeline §1 proves, and its
-acceptance demo — a node discovering *how to call a cell it has never
-seen* from gossiped interface facts — is demo v2. That demo's
-composition dataflow should crib homestar/IPVM's `await/ok` promise
-shape (§6): instructions referencing prior results by content address,
-scheduled as a DAG that resumes from the first unmemoized step. Spec
-reference, not code.
+**Demo v2 LANDED 2026-07-21** (SP `scenarios/demo_v2.yaml`, SP ROADMAP §3.4):
+a node discovering *how to call a cell it has never seen* from gossiped
+interface facts, deriving `compatible(sha256,digest, caps,caps)`, wiring
+digest→caps (feeding sha256's hex output into a new `caps` cell, uppercase),
+witnessing the composition, and having it confirmed by a reader's own
+re-execution (confirmation outranks trust) and held by an engineless reader on
+trust. **desmata's share:** the arity-1-bare rule in `wit.py`'s
+`canonical_signature` — a single-parameter function renders its ParamsT as the
+bare inner type (no wrapping parens), still byte-for-byte with SP's `wit.gleam`
+over the shared fixtures (`test/test_wit.py`, caps fixture added). WIT has no
+1-tuples, so a unary function's input type *is* that type; without this the
+`compatible` join fires for no real pair of cells (digest's `string` result
+vs. a `(string)` param). The new `caps-cell` sibling mirrors sha256-cell; both
+now expose `.#wasm-tools` so `dsm call` mints the interface strokes SP verifies.
+Sequencing: after committing here, `nix flake update desmata` in SP so the
+pinned `dsm` mints bare params (else the SP full-tier test skips). That demo's
+composition dataflow should crib homestar/IPVM's `await/ok` promise shape (§6):
+instructions referencing prior results by content address, scheduled as a DAG
+that resumes from the first unmemoized step. Spec reference, not code. Still
+ahead: the intermediate value travels inline as WAVE; a value moving by
+*content-address* (a typed DataRef) is the richer dataflow, unbuilt.
 
 ## 4. Then: stroke dependencies — data moves the way software moves [both]
 

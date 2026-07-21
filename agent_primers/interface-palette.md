@@ -49,14 +49,20 @@ same-key/different-value conflict machinery.
 
 ## 3. desmata work items — 1–3 LANDED 2026-07-20
 
-1. **Canonical WIT text. LANDED.** The projection landed on the SP side
-   first (§3.1, `docs/design/interface_palette.md` §4); `wit.py`'s
-   `canonical_signature` is a faithful port and the *reference
-   implementation* of the contract in Python, pinned the way `wave.py`
-   pins WAVE⇄JSON — with byte vectors **shared** with SP's runner tests
-   (`test/fixtures/{gnize,sha256}_wit.json`, run to identical canonical
-   texts on both sides; a live `dsm`-path extraction reproduces the
-   committed fixture bytes exactly, so hashes agree byte-for-byte).
+1. **Canonical WIT text. LANDED** (refined 2026-07-21 for demo v2). The
+   projection landed on the SP side first (§3.1,
+   `docs/design/interface_palette.md` §4); `wit.py`'s `canonical_signature`
+   is a faithful port and the *reference implementation* of the contract in
+   Python, pinned the way `wave.py` pins WAVE⇄JSON — with byte vectors
+   **shared** with SP's runner tests
+   (`test/fixtures/{gnize,sha256,caps}_wit.json`, run to identical canonical
+   texts on both sides; a live `dsm`-path extraction reproduces the committed
+   fixture bytes exactly, so hashes agree byte-for-byte). **Arity-1 rule:** a
+   single-parameter function renders its ParamsT as the bare inner type (no
+   wrapping parens) — WIT has no 1-tuples, so a unary function's input type
+   *is* that type, which lets it hash-equal a producer's ResultT and makes the
+   `compatible` join fire on real cells (demo v2, SP ROADMAP §3.4). Both sides
+   changed together and re-proven byte-for-byte.
 2. **Extraction. LANDED.** `wit.WitExtractor`, a seam beside `Invoker`;
    the reference impl `WasmToolsCli` shells the cell's pinned `wasm-tools`
    (a new `.#wasm-tools` flake output, sibling to `.#wasmtime`), same

@@ -60,7 +60,9 @@ CANNED_WIT = json.dumps(
 
 
 def test_renderer_digest_signature():
-    assert canonical_signature(CANNED_WIT, "digest") == ("(list<u8>)", "string")
+    # a single param renders bare (no parens) so a unary function's ParamsT
+    # can hash-equal a producer's ResultT — the `compatible` join
+    assert canonical_signature(CANNED_WIT, "digest") == ("list<u8>", "string")
 
 
 def test_renderer_record_and_multiparam():
@@ -93,7 +95,7 @@ def test_renderer_rejects_non_json():
 
 def test_renderer_matches_real_sha256_component():
     text = (FIXTURES / "sha256_wit.json").read_text()
-    assert canonical_signature(text, "digest") == ("(list<u8>)", "string")
+    assert canonical_signature(text, "digest") == ("list<u8>", "string")
 
 
 def test_renderer_matches_real_gnize_component():
@@ -104,12 +106,21 @@ def test_renderer_matches_real_gnize_component():
     )
 
 
+def test_renderer_matches_real_caps_component():
+    # caps-cell's `caps(s: string) -> string`: a single param renders bare, so
+    # its ParamsT text (`string`) equals sha256 `digest`'s ResultT — the shared
+    # type hash that makes `compatible(sha256, digest, caps, caps)` derive.
+    # Rendering the same fixture SP's runner uses proves the hashes agree.
+    text = (FIXTURES / "caps_wit.json").read_text()
+    assert canonical_signature(text, "caps") == ("string", "string")
+
+
 # --- interface_strokes: the interface/v1 projection --------------------------
 
 
 def test_interface_strokes_mints_type_defs_and_exports():
     strokes = interface_strokes("comp-hash", "digest", CANNED_WIT)
-    params_t, result_t = _digest("(list<u8>)"), _digest("string")
+    params_t, result_t = _digest("list<u8>"), _digest("string")
 
     # two type_def preimages and one exports fact, all interface/v1
     assert all(s.palette == SP_INTERFACE_PALETTE for s in strokes)
@@ -117,7 +128,7 @@ def test_interface_strokes_mints_type_defs_and_exports():
     exports = [s for s in strokes if s.color == SP_EXPORTS]
 
     assert {s.args for s in type_defs} == {
-        (params_t, "(list<u8>)"),
+        (params_t, "list<u8>"),
         (result_t, "string"),
     }
     assert [s.args for s in exports] == [("comp-hash", "digest", params_t, result_t)]

@@ -85,7 +85,11 @@ def canonical_signature(json_text: str, function: str) -> tuple[str, str] | None
     Returns ``None`` (abstain) on a parse failure, a missing function, or any
     type the renderer cannot inline faithfully — the caller then mints nothing.
     Param names are dropped; a missing/null result renders to ``""`` (which
-    SP's runner also produces, so the hashes still agree)."""
+    SP's runner also produces, so the hashes still agree). A **single** param
+    renders as its bare type (no wrapping parens): WIT has no 1-tuples, so a
+    unary function's input type *is* that type, which lets a producer's ResultT
+    hash-equal a unary consumer's ParamsT (the ``compatible`` join). Mirrors
+    SP's ``wit.gleam`` ``render_params`` byte-for-byte."""
     try:
         wit = json.loads(json_text)
     except (json.JSONDecodeError, ValueError):
@@ -115,7 +119,11 @@ def canonical_signature(json_text: str, function: str) -> tuple[str, str] | None
         if result_text is None:
             return None
 
-    return "(" + ", ".join(param_texts) + ")", result_text
+    if len(param_texts) == 1:
+        params_text = param_texts[0]
+    else:
+        params_text = "(" + ", ".join(param_texts) + ")"
+    return params_text, result_text
 
 
 def _export_ids(worlds: list) -> list[int]:

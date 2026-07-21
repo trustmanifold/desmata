@@ -293,11 +293,14 @@ def test_witness_interface_mints_interface_strokes(tmp_path: Path):
 
     strokes = witness_interface(files, _StubExtractor(), component, "digest")
 
-    params_t = hashlib.sha256(b"(list<u8>)").hexdigest()
+    # A single param renders bare (no wrapping parens), so ParamsT is the hash
+    # of `list<u8>`, not `(list<u8>)` — the arity-1 rule that lets a unary
+    # function's input hash-equal a producer's result (the `compatible` join).
+    params_t = hashlib.sha256(b"list<u8>").hexdigest()
     result_t = hashlib.sha256(b"string").hexdigest()
     kinds = {(s.color, s.args) for s in strokes}
     assert kinds == {
-        (SP_TYPE_DEF, (params_t, "(list<u8>)")),
+        (SP_TYPE_DEF, (params_t, "list<u8>")),
         (SP_TYPE_DEF, (result_t, "string")),
         (SP_EXPORTS, (hashlib.sha256(b"pretend-component-bytes").hexdigest(), "digest", params_t, result_t)),
     }

@@ -1,0 +1,765 @@
+{
+  "worlds": [
+    {
+      "name": "root",
+      "imports": {
+        "interface-0": {
+          "interface": {
+            "id": 0
+          }
+        },
+        "interface-1": {
+          "interface": {
+            "id": 1
+          }
+        },
+        "interface-2": {
+          "interface": {
+            "id": 2
+          }
+        },
+        "interface-3": {
+          "interface": {
+            "id": 3
+          }
+        },
+        "interface-4": {
+          "interface": {
+            "id": 4
+          }
+        },
+        "interface-5": {
+          "interface": {
+            "id": 5
+          }
+        },
+        "interface-6": {
+          "interface": {
+            "id": 6
+          }
+        },
+        "interface-7": {
+          "interface": {
+            "id": 7
+          }
+        },
+        "interface-8": {
+          "interface": {
+            "id": 8
+          }
+        },
+        "interface-9": {
+          "interface": {
+            "id": 9
+          }
+        },
+        "interface-10": {
+          "interface": {
+            "id": 10
+          }
+        },
+        "interface-11": {
+          "interface": {
+            "id": 11
+          }
+        },
+        "interface-12": {
+          "interface": {
+            "id": 12
+          }
+        },
+        "interface-13": {
+          "interface": {
+            "id": 13
+          }
+        }
+      },
+      "exports": {
+        "interface-14": {
+          "interface": {
+            "id": 14
+          }
+        }
+      },
+      "package": 4
+    }
+  ],
+  "interfaces": [
+    {
+      "name": "poll",
+      "types": {
+        "pollable": 0
+      },
+      "functions": {
+        "[method]pollable.block": {
+          "name": "[method]pollable.block",
+          "kind": {
+            "method": 0
+          },
+          "params": [
+            {
+              "name": "self",
+              "type": 1
+            }
+          ]
+        },
+        "poll": {
+          "name": "poll",
+          "kind": "freestanding",
+          "params": [
+            {
+              "name": "in",
+              "type": 2
+            }
+          ],
+          "result": 3
+        }
+      },
+      "package": 0
+    },
+    {
+      "name": "monotonic-clock",
+      "types": {
+        "duration": 4,
+        "pollable": 5
+      },
+      "functions": {
+        "subscribe-duration": {
+          "name": "subscribe-duration",
+          "kind": "freestanding",
+          "params": [
+            {
+              "name": "when",
+              "type": 4
+            }
+          ],
+          "result": 6
+        }
+      },
+      "package": 1
+    },
+    {
+      "name": "error",
+      "types": {
+        "error": 7
+      },
+      "functions": {},
+      "package": 0
+    },
+    {
+      "name": "streams",
+      "types": {
+        "input-stream": 8,
+        "output-stream": 9,
+        "error": 10,
+        "stream-error": 12,
+        "pollable": 13
+      },
+      "functions": {
+        "[method]output-stream.check-write": {
+          "name": "[method]output-stream.check-write",
+          "kind": {
+            "method": 9
+          },
+          "params": [
+            {
+              "name": "self",
+              "type": 14
+            }
+          ],
+          "result": 15
+        },
+        "[method]output-stream.write": {
+          "name": "[method]output-stream.write",
+          "kind": {
+            "method": 9
+          },
+          "params": [
+            {
+              "name": "self",
+              "type": 14
+            },
+            {
+              "name": "contents",
+              "type": 16
+            }
+          ],
+          "result": 17
+        },
+        "[method]output-stream.blocking-flush": {
+          "name": "[method]output-stream.blocking-flush",
+          "kind": {
+            "method": 9
+          },
+          "params": [
+            {
+              "name": "self",
+              "type": 14
+            }
+          ],
+          "result": 17
+        },
+        "[method]output-stream.subscribe": {
+          "name": "[method]output-stream.subscribe",
+          "kind": {
+            "method": 9
+          },
+          "params": [
+            {
+              "name": "self",
+              "type": 14
+            }
+          ],
+          "result": 18
+        }
+      },
+      "package": 0
+    },
+    {
+      "name": "stdout",
+      "types": {
+        "output-stream": 19
+      },
+      "functions": {
+        "get-stdout": {
+          "name": "get-stdout",
+          "kind": "freestanding",
+          "params": [],
+          "result": 20
+        }
+      },
+      "package": 2
+    },
+    {
+      "name": "stderr",
+      "types": {
+        "output-stream": 21
+      },
+      "functions": {
+        "get-stderr": {
+          "name": "get-stderr",
+          "kind": "freestanding",
+          "params": [],
+          "result": 22
+        }
+      },
+      "package": 2
+    },
+    {
+      "name": "stdin",
+      "types": {
+        "input-stream": 23
+      },
+      "functions": {
+        "get-stdin": {
+          "name": "get-stdin",
+          "kind": "freestanding",
+          "params": [],
+          "result": 24
+        }
+      },
+      "package": 2
+    },
+    {
+      "name": "environment",
+      "types": {},
+      "functions": {
+        "get-environment": {
+          "name": "get-environment",
+          "kind": "freestanding",
+          "params": [],
+          "result": 26
+        }
+      },
+      "package": 2
+    },
+    {
+      "name": "exit",
+      "types": {},
+      "functions": {
+        "exit": {
+          "name": "exit",
+          "kind": "freestanding",
+          "params": [
+            {
+              "name": "status",
+              "type": 27
+            }
+          ]
+        }
+      },
+      "package": 2
+    },
+    {
+      "name": "terminal-input",
+      "types": {
+        "terminal-input": 28
+      },
+      "functions": {},
+      "package": 2
+    },
+    {
+      "name": "terminal-output",
+      "types": {
+        "terminal-output": 29
+      },
+      "functions": {},
+      "package": 2
+    },
+    {
+      "name": "terminal-stdin",
+      "types": {
+        "terminal-input": 30
+      },
+      "functions": {
+        "get-terminal-stdin": {
+          "name": "get-terminal-stdin",
+          "kind": "freestanding",
+          "params": [],
+          "result": 32
+        }
+      },
+      "package": 2
+    },
+    {
+      "name": "terminal-stdout",
+      "types": {
+        "terminal-output": 33
+      },
+      "functions": {
+        "get-terminal-stdout": {
+          "name": "get-terminal-stdout",
+          "kind": "freestanding",
+          "params": [],
+          "result": 35
+        }
+      },
+      "package": 2
+    },
+    {
+      "name": "terminal-stderr",
+      "types": {
+        "terminal-output": 36
+      },
+      "functions": {
+        "get-terminal-stderr": {
+          "name": "get-terminal-stderr",
+          "kind": "freestanding",
+          "params": [],
+          "result": 38
+        }
+      },
+      "package": 2
+    },
+    {
+      "name": "capper",
+      "types": {},
+      "functions": {
+        "caps": {
+          "name": "caps",
+          "kind": "freestanding",
+          "params": [
+            {
+              "name": "s",
+              "type": "string"
+            }
+          ],
+          "result": "string"
+        }
+      },
+      "package": 3
+    }
+  ],
+  "types": [
+    {
+      "name": "pollable",
+      "kind": "resource",
+      "owner": {
+        "interface": 0
+      }
+    },
+    {
+      "name": null,
+      "kind": {
+        "handle": {
+          "borrow": 0
+        }
+      },
+      "owner": null
+    },
+    {
+      "name": null,
+      "kind": {
+        "list": 1
+      },
+      "owner": null
+    },
+    {
+      "name": null,
+      "kind": {
+        "list": "u32"
+      },
+      "owner": null
+    },
+    {
+      "name": "duration",
+      "kind": {
+        "type": "u64"
+      },
+      "owner": {
+        "interface": 1
+      }
+    },
+    {
+      "name": "pollable",
+      "kind": {
+        "type": 0
+      },
+      "owner": {
+        "interface": 1
+      }
+    },
+    {
+      "name": null,
+      "kind": {
+        "handle": {
+          "own": 5
+        }
+      },
+      "owner": null
+    },
+    {
+      "name": "error",
+      "kind": "resource",
+      "owner": {
+        "interface": 2
+      }
+    },
+    {
+      "name": "input-stream",
+      "kind": "resource",
+      "owner": {
+        "interface": 3
+      }
+    },
+    {
+      "name": "output-stream",
+      "kind": "resource",
+      "owner": {
+        "interface": 3
+      }
+    },
+    {
+      "name": "error",
+      "kind": {
+        "type": 7
+      },
+      "owner": {
+        "interface": 3
+      }
+    },
+    {
+      "name": null,
+      "kind": {
+        "handle": {
+          "own": 10
+        }
+      },
+      "owner": null
+    },
+    {
+      "name": "stream-error",
+      "kind": {
+        "variant": {
+          "cases": [
+            {
+              "name": "last-operation-failed",
+              "type": 11
+            },
+            {
+              "name": "closed",
+              "type": null
+            }
+          ]
+        }
+      },
+      "owner": {
+        "interface": 3
+      }
+    },
+    {
+      "name": "pollable",
+      "kind": {
+        "type": 0
+      },
+      "owner": {
+        "interface": 3
+      }
+    },
+    {
+      "name": null,
+      "kind": {
+        "handle": {
+          "borrow": 9
+        }
+      },
+      "owner": null
+    },
+    {
+      "name": null,
+      "kind": {
+        "result": {
+          "ok": "u64",
+          "err": 12
+        }
+      },
+      "owner": null
+    },
+    {
+      "name": null,
+      "kind": {
+        "list": "u8"
+      },
+      "owner": null
+    },
+    {
+      "name": null,
+      "kind": {
+        "result": {
+          "ok": null,
+          "err": 12
+        }
+      },
+      "owner": null
+    },
+    {
+      "name": null,
+      "kind": {
+        "handle": {
+          "own": 13
+        }
+      },
+      "owner": null
+    },
+    {
+      "name": "output-stream",
+      "kind": {
+        "type": 9
+      },
+      "owner": {
+        "interface": 4
+      }
+    },
+    {
+      "name": null,
+      "kind": {
+        "handle": {
+          "own": 19
+        }
+      },
+      "owner": null
+    },
+    {
+      "name": "output-stream",
+      "kind": {
+        "type": 9
+      },
+      "owner": {
+        "interface": 5
+      }
+    },
+    {
+      "name": null,
+      "kind": {
+        "handle": {
+          "own": 21
+        }
+      },
+      "owner": null
+    },
+    {
+      "name": "input-stream",
+      "kind": {
+        "type": 8
+      },
+      "owner": {
+        "interface": 6
+      }
+    },
+    {
+      "name": null,
+      "kind": {
+        "handle": {
+          "own": 23
+        }
+      },
+      "owner": null
+    },
+    {
+      "name": null,
+      "kind": {
+        "tuple": {
+          "types": [
+            "string",
+            "string"
+          ]
+        }
+      },
+      "owner": null
+    },
+    {
+      "name": null,
+      "kind": {
+        "list": 25
+      },
+      "owner": null
+    },
+    {
+      "name": null,
+      "kind": {
+        "result": {
+          "ok": null,
+          "err": null
+        }
+      },
+      "owner": null
+    },
+    {
+      "name": "terminal-input",
+      "kind": "resource",
+      "owner": {
+        "interface": 9
+      }
+    },
+    {
+      "name": "terminal-output",
+      "kind": "resource",
+      "owner": {
+        "interface": 10
+      }
+    },
+    {
+      "name": "terminal-input",
+      "kind": {
+        "type": 28
+      },
+      "owner": {
+        "interface": 11
+      }
+    },
+    {
+      "name": null,
+      "kind": {
+        "handle": {
+          "own": 30
+        }
+      },
+      "owner": null
+    },
+    {
+      "name": null,
+      "kind": {
+        "option": 31
+      },
+      "owner": null
+    },
+    {
+      "name": "terminal-output",
+      "kind": {
+        "type": 29
+      },
+      "owner": {
+        "interface": 12
+      }
+    },
+    {
+      "name": null,
+      "kind": {
+        "handle": {
+          "own": 33
+        }
+      },
+      "owner": null
+    },
+    {
+      "name": null,
+      "kind": {
+        "option": 34
+      },
+      "owner": null
+    },
+    {
+      "name": "terminal-output",
+      "kind": {
+        "type": 29
+      },
+      "owner": {
+        "interface": 13
+      }
+    },
+    {
+      "name": null,
+      "kind": {
+        "handle": {
+          "own": 36
+        }
+      },
+      "owner": null
+    },
+    {
+      "name": null,
+      "kind": {
+        "option": 37
+      },
+      "owner": null
+    }
+  ],
+  "packages": [
+    {
+      "name": "wasi:io@0.2.9",
+      "interfaces": {
+        "poll": 0,
+        "error": 2,
+        "streams": 3
+      },
+      "worlds": {}
+    },
+    {
+      "name": "wasi:clocks@0.2.9",
+      "interfaces": {
+        "monotonic-clock": 1
+      },
+      "worlds": {}
+    },
+    {
+      "name": "wasi:cli@0.2.9",
+      "interfaces": {
+        "stdout": 4,
+        "stderr": 5,
+        "stdin": 6,
+        "environment": 7,
+        "exit": 8,
+        "terminal-input": 9,
+        "terminal-output": 10,
+        "terminal-stdin": 11,
+        "terminal-stdout": 12,
+        "terminal-stderr": 13
+      },
+      "worlds": {}
+    },
+    {
+      "name": "desmata:caps@0.1.0",
+      "interfaces": {
+        "capper": 14
+      },
+      "worlds": {}
+    },
+    {
+      "name": "root:component",
+      "interfaces": {},
+      "worlds": {
+        "root": 0
+      }
+    }
+  ]
+}
