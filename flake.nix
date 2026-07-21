@@ -158,14 +158,18 @@
           };
           shellHook = ''
             export REPO_ROOT=$(pwd)
-            # to stderr, so `nix develop --command dsm ... -o json | ...` stays clean
-            cat >&2 <<'EOF'
+            # Nudge how to register the plugin, but only when it isn't already
+            # in the nushell plugin registry (a fresh `nu` reads it). To stderr,
+            # so `nix develop --command dsm ... -o json | ...` stays clean.
+            if ! nu -c 'plugin list | any {|p| $p.name == "desmata"}' 2>/dev/null | grep -qx true; then
+              cat >&2 <<'EOF'
     nushell 0.113.1 + the desmata plugin are on PATH. To get structured
     `dsm anatomy`/`dsm cells`/... inside nu (a matching 0.113 REPL), once:
         plugin add $env.DESMATA_NU_PLUGIN
         plugin use desmata
     Then e.g.  dsm anatomy $env.GNIZE_CELL_SRC | get nucleus
     EOF
+            fi
           '';
         };
       });
