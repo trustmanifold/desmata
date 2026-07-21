@@ -78,6 +78,16 @@ puts 0.113 on PATH, `dsm`'s `auto` detection still fires (NU_VERSION is set),
 but the **plugin** won't load into the 0.108 REPL — you need a 0.113 REPL.
 See §5.
 
+**Future simplification — watch [nushell/nushell#18079](https://github.com/nushell/nushell/pull/18079).**
+The whole "bundle a matching nushell + keep `nu-plugin`/`nu-protocol` in
+lockstep" burden exists *only* because the engine hard-refuses a minor-version
+mismatch at the handshake. That PR moves plugin version compatibility toward
+negotiation / graceful degradation across a version boundary. When it lands,
+this can relax into a genuine **fallback**: use the plugin when a compatible
+`nu` is present, otherwise fall back to the Python `--output json` path — and we
+can likely drop the `nixpkgs-tools` pin and the lockstep treadmill entirely.
+Revisit here (and the `nixpkgs-tools` comment in `flake.nix`) when it merges.
+
 ## 4. Registering the plugin
 
 The desmata dev shell puts `nu` (0.113.1) and the plugin on PATH and exports

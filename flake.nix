@@ -16,6 +16,10 @@
     # -- uses this same rev, so the plugin's 0.113 protocol matches. Bumping
     # nushell means bumping this rev AND nu-plugin/nu-protocol in the crate's
     # Cargo.toml in lockstep (agent_primers/nushell-plugin.md).
+    #
+    # This bundling is a workaround for the engine's hard version-refusal at the
+    # plugin handshake. Watch nushell/nushell#18079 (plugin version negotiation):
+    # when it lands we can fall back gracefully instead and likely drop this pin.
     nixpkgs-tools.url = "github:NixOS/nixpkgs/0bb7ec54c8483066ec9d7720e780a5caa71f8612";
 
     pyproject-nix = {

@@ -68,11 +68,17 @@ fn json_to_value(json: &serde_json::Value, span: Span) -> Value {
     }
 }
 
-/// Exec `dsm <args...> --output json` and convert its stdout. A spawn failure
-/// or a non-zero exit (a not-a-cell dir, an unknown cell, ...) becomes a
-/// nushell error carrying dsm's own message.
-fn run_dsm_json(args: &[String], span: Span) -> Result<Value, LabeledError> {
+/// Exec `dsm <args...> --output json` in `cwd` and convert its stdout. A spawn
+/// failure or a non-zero exit (a not-a-cell dir, an unknown cell, ...) becomes
+/// a nushell error carrying dsm's own message.
+///
+/// `cwd` is nushell's current directory (`EngineInterface::get_current_dir`),
+/// not the plugin process's: a plugin is a long-lived process whose own cwd
+/// does not follow the caller's `cd`, so a relative path (or the `.` default)
+/// must be resolved against the caller's directory explicitly.
+fn run_dsm_json(args: &[String], cwd: &str, span: Span) -> Result<Value, LabeledError> {
     let output = Command::new("dsm")
+        .current_dir(cwd)
         .args(args)
         .args(["--output", "json"])
         .output()
@@ -130,12 +136,12 @@ impl SimplePluginCommand for Anatomy {
     fn run(
         &self,
         _plugin: &DesmataPlugin,
-        _engine: &EngineInterface,
+        engine: &EngineInterface,
         call: &EvaluatedCall,
         _input: &Value,
     ) -> Result<Value, LabeledError> {
         let path: String = call.opt(0)?.unwrap_or_else(|| ".".to_string());
-        run_dsm_json(&["anatomy".to_string(), path], call.head)
+        run_dsm_json(&["anatomy".to_string(), path], &engine.get_current_dir()?, call.head)
     }
 }
 
@@ -167,7 +173,7 @@ impl SimplePluginCommand for Cells {
     fn run(
         &self,
         _plugin: &DesmataPlugin,
-        _engine: &EngineInterface,
+        engine: &EngineInterface,
         call: &EvaluatedCall,
         _input: &Value,
     ) -> Result<Value, LabeledError> {
@@ -176,7 +182,7 @@ impl SimplePluginCommand for Cells {
             args.push("--home".to_string());
             args.push(home);
         }
-        run_dsm_json(&args, call.head)
+        run_dsm_json(&args, &engine.get_current_dir()?, call.head)
     }
 }
 
@@ -202,11 +208,11 @@ impl SimplePluginCommand for Check {
     fn run(
         &self,
         _plugin: &DesmataPlugin,
-        _engine: &EngineInterface,
+        engine: &EngineInterface,
         call: &EvaluatedCall,
         _input: &Value,
     ) -> Result<Value, LabeledError> {
-        run_dsm_json(&["check".to_string()], call.head)
+        run_dsm_json(&["check".to_string()], &engine.get_current_dir()?, call.head)
     }
 }
 
@@ -246,7 +252,7 @@ impl SimplePluginCommand for Inspect {
     fn run(
         &self,
         _plugin: &DesmataPlugin,
-        _engine: &EngineInterface,
+        engine: &EngineInterface,
         call: &EvaluatedCall,
         _input: &Value,
     ) -> Result<Value, LabeledError> {
@@ -260,7 +266,7 @@ impl SimplePluginCommand for Inspect {
             args.push("--depth".to_string());
             args.push(depth.to_string());
         }
-        run_dsm_json(&args, call.head)
+        run_dsm_json(&args, &engine.get_current_dir()?, call.head)
     }
 }
 
