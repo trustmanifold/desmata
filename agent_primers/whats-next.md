@@ -176,10 +176,17 @@ descriptive, and `type_ref` is a *self-checkable* hint: confirm it via the
 `paint.post_put_data` now returns the whole DataRef the node minted, and
 `ship_blobs` cross-checks the node-reported `size` against the bytes shipped —
 the hash round-trip discipline extended to the new field, tolerant of an older
-node that omits it. Not yet produced from our side: a value X/Y travels inline
-as WAVE, and the outbox holds only opaque component blobs, so attaching a
-`type_ref` to a shipped value is demo-v2 work (a value moving by
-content-address, i.e. the composition dataflow below).
+node that omits it. **Producer half LANDED 2026-07-21** (SP
+`docs/design/stroke_dependencies.md` §8): `dsm call --result-by-ref` witnesses
+the result Y **by content-address** — `paint.witnessed_call` decodes the result
+to its canonical value bytes (`result_ref_value`: a `string` is its UTF-8, a
+`list<u8>` its raw bytes — the inverse of SP's `render_wave`, restricted to that
+renderable set, else inline), `stash_blob`s them into the outbox `ship_blobs`
+already ships, and emits Y as a `DataRef {hash, suite, type_ref}` whose
+`type_ref` is the same `result_t` the interface witness mints. An SP wasmtime
+node then confirms by re-executing **and dereferencing Y** (SP's consumer half,
+both `X` and `Y`). The composer/input side (a `DataRef` *arg* fed to `dsm call`,
+which needs a fetch client desmata lacks) rides with §4.
 
 Design: [interface-palette.md](./interface-palette.md) (desmata's half);
 canonical doc in SP `docs/design/interface_palette.md`. The problem:

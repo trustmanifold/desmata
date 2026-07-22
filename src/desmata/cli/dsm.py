@@ -36,7 +36,13 @@ from desmata.content import Hash
 from desmata.exceptions import ArtifactPinMismatch, CellUnavailable, PublishMismatch
 from desmata.invoke import build_invoker
 from desmata.keys import peer_key
-from desmata.paint import publish_strokes, ship_blobs, witness_interface, witnessed_call
+from desmata.paint import (
+    publish_strokes,
+    result_type_ref,
+    ship_blobs,
+    witness_interface,
+    witnessed_call,
+)
 from desmata.wit import build_wit_extractor
 from desmata.cli.common import cli_logger
 from desmata.serve import DaemonFailed, serve_forever
@@ -487,6 +493,11 @@ def call(
         None, "--artifact", help="which pinned artifact to invoke (defaults to "
         "the cell's only one)",
     ),
+    result_by_ref: bool = typer.Option(
+        False, "--result-by-ref", help="witness the result Y by content-address "
+        "(a DataRef the verifier dereferences) instead of inline WAVE, when the "
+        "cell pins wasm-tools and the result type is renderable",
+    ),
     verbose: bool = typer.Option(False, "--verbose", "-v"),
     home: Optional[Path] = typer.Option(
         None, "--home", help="sandbox desmata's state under this directory instead of the XDG dirs"
@@ -540,21 +551,33 @@ def call(
             )
             # the cell's own flake supplies the runner (nix build .#wasmtime)
             invoker = build_invoker(context)
-            # the pins were verified above, so the act is worth witnessing: an
-            # evaluates_to claim lands in the ledger (and the component bytes
-            # in the paint outbox) for the next `dsm paint`
-            result, _ = witnessed_call(
-                factory.userspace, invoker, cell_dir / artifact, function, parsed_args
-            )
-            # and, when the cell's flake pins wasm-tools, project this
-            # function's WIT interface into interface/v1 strokes beside the
-            # evaluation (SP ROADMAP §3.2). Absent wasm-tools, skip silently —
-            # the evaluation witness stands alone, the *absent → trust fallback*
+            # the WIT extractor (wasm-tools seam) drives both the interface
+            # witness below and, for --result-by-ref, the result's typeRef.
+            # Absent wasm-tools, skip silently — the *absent → trust fallback*
             # posture the SP node mirrors.
             try:
                 extractor = build_wit_extractor(context)
             except subprocess.CalledProcessError:
                 extractor = None
+            # --result-by-ref: resolve the result type so witnessed_call can
+            # ship Y by content-address; None (no wasm-tools / unrenderable
+            # type) falls back to inline WAVE.
+            result_ref = None
+            if result_by_ref and extractor is not None:
+                result_ref = result_type_ref(
+                    extractor, cell_dir / artifact, function
+                )
+            # the pins were verified above, so the act is worth witnessing: an
+            # evaluates_to claim lands in the ledger (and the component bytes,
+            # plus any by-reference result blob, in the paint outbox) for the
+            # next `dsm paint`
+            result, _ = witnessed_call(
+                factory.userspace, invoker, cell_dir / artifact, function,
+                parsed_args, result_ref=result_ref,
+            )
+            # and, when the cell's flake pins wasm-tools, project this
+            # function's WIT interface into interface/v1 strokes beside the
+            # evaluation (SP ROADMAP §3.2).
             if extractor is not None:
                 witness_interface(
                     factory.userspace, extractor, cell_dir / artifact, function

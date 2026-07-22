@@ -138,12 +138,53 @@ def stash_blob(files: UserspaceFiles, data: bytes) -> str:
     return digest
 
 
+def result_ref_value(wave_result: str, result_text: str) -> bytes | None:
+    """The canonical value bytes a by-reference ``evaluates_to`` result carries,
+    for the result types SP's renderer inverts (``verify.gleam`` ``render_wave``,
+    stroke_dependencies.md §8): a ``string`` is its UTF-8 content, a ``list<u8>``
+    its raw bytes. Any other type — or a value that does not match its declared
+    type — returns ``None``, and the result stays inline WAVE (abstain, never
+    guess an encoding; the same cross-repo contract ``canonical_signature`` keeps
+    for types, kept here for the bytes behind a ``typeRef``)."""
+    if result_text == "string":
+        value = wave.decode(wave_result)
+        return value.encode() if isinstance(value, str) else None
+    if result_text == "list<u8>":
+        value = wave.decode(wave_result)
+        if isinstance(value, list) and all(
+            isinstance(b, int) and 0 <= b < 256 for b in value
+        ):
+            return bytes(value)
+        return None
+    return None
+
+
+def result_type_ref(
+    extractor: WitExtractor, component: Path, function: str
+) -> tuple[str, str] | None:
+    """``(result_text, sha256(result_text))`` for ``function`` on ``component``
+    — the canonical WIT result-type text and its ``type_def`` hash (the value a
+    by-reference result's ``typeRef`` carries). ``None`` when the interface can't
+    be projected (no ``wasm-tools``, or a type the renderer won't guess), the
+    same abstaining projection :func:`witness_interface` uses."""
+    try:
+        wit_json = extractor.extract(component)
+    except WitUnavailable:
+        return None
+    signature = wit.canonical_signature(wit_json, function)
+    if signature is None:
+        return None
+    _params_text, result_text = signature
+    return result_text, hashlib.sha256(result_text.encode()).hexdigest()
+
+
 def witnessed_call(
     files: UserspaceFiles,
     invoker: Invoker,
     component: Path,
     function: str,
     args: Sequence[Any],
+    result_ref: tuple[str, str] | None = None,
 ) -> tuple[Any, Brushstroke]:
     """Invoke a lightweight-cell function and witness the act as an
     ``evaluates_to(C, F, X, Y)`` claim in the provenance ledger.
@@ -156,16 +197,39 @@ def witnessed_call(
     determinism policy is exact-hash — a zero-import component call is
     bit-deterministic), so nothing here is re-encoded.
 
+    When ``result_ref`` — ``(result_text, typeRef)`` from
+    :func:`result_type_ref` — is supplied and the result type is one the SP
+    renderer can decode, Y travels **by content-address** instead of inline: the
+    canonical value bytes are stashed in the outbox (shipped by a later ``dsm
+    paint``) and Y becomes a ``DataRef`` JSON ``{hash, suite, type_ref}`` the
+    node dereferences before comparing (stroke_dependencies.md §8, the producer
+    half). An unrenderable type falls back to inline — the value is always
+    faithfully witnessed either way.
+
     Returns the decoded result (what plain ``invoke`` would have returned)
     and the witnessed stroke."""
     data = Path(component).read_bytes()
     component_hash = stash_blob(files, data)
     args_wave = wave.encode_args(args)
     raw = invoker.invoke_raw(component, function, args_wave)
+    y = raw
+    if result_ref is not None:
+        result_text, type_ref = result_ref
+        canonical = result_ref_value(raw, result_text)
+        if canonical is not None:
+            y = json.dumps(
+                {
+                    "hash": stash_blob(files, canonical),
+                    "suite": "sha256",
+                    "type_ref": type_ref,
+                },
+                separators=(",", ":"),
+                sort_keys=True,
+            )
     stroke = Brushstroke(
         color=SP_EVALUATES_TO,
         palette=SP_REPRODUCIBILITY_PALETTE,
-        args=(component_hash, function, args_wave, raw),
+        args=(component_hash, function, args_wave, y),
         created_at=Brushstroke.now_ms(),
     )
     save_brushstrokes(files, [stroke])

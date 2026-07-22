@@ -30,6 +30,8 @@ from desmata.paint import (
     PUT_DATA_PATH,
     blob_dir,
     publish_strokes,
+    result_ref_value,
+    result_type_ref,
     ship_blobs,
     sign_all,
     stash_blob,
@@ -253,6 +255,72 @@ def test_witnessed_call_mints_an_evaluates_to_claim(tmp_path: Path):
     assert stroke in load_brushstrokes(files)
     # and the bytes the claim dereferences sit in the outbox under their hash
     assert (blob_dir(files) / expected_hash).read_bytes() == b"pretend-component-bytes"
+
+
+# --- witnessing a result BY REFERENCE (stroke_dependencies.md §8) -------------
+
+
+def test_result_ref_value_renders_supported_types():
+    # string -> UTF-8 content (the inverse of SP render_wave's wave_string)
+    assert result_ref_value('"ABC123"', "string") == b"ABC123"
+    # list<u8> -> raw bytes
+    assert result_ref_value("[65, 66, 67]", "list<u8>") == b"ABC"
+    # anything else -> None (abstain; the value stays inline)
+    assert result_ref_value("7", "u32") is None
+    assert result_ref_value("[1, 2, 999]", "list<u8>") is None
+
+
+def test_result_type_ref_projects_the_result_type(tmp_path: Path):
+    component = tmp_path / "component.wasm"
+    component.write_bytes(b"pretend-component-bytes")
+    # _WIT_JSON's `digest` returns `string`; the typeRef is sha256 of that text
+    assert result_type_ref(_StubExtractor(), component, "digest") == (
+        "string",
+        hashlib.sha256(b"string").hexdigest(),
+    )
+    # no wasm-tools -> abstain (None), so witnessed_call falls back to inline
+    assert result_type_ref(_StubExtractor(wit_json=None), component, "digest") is None
+
+
+def test_witnessed_call_by_ref_emits_a_dataref_result(tmp_path: Path):
+    files = _files(tmp_path)
+    component = tmp_path / "component.wasm"
+    component.write_bytes(b"pretend-component-bytes")
+    engine = _ScriptedEngine(raw='"ABC123"')  # a WAVE string result
+    result_t = hashlib.sha256(b"string").hexdigest()
+
+    result, stroke = witnessed_call(
+        files, engine, component, "caps", ["abc123"],
+        result_ref=("string", result_t),
+    )
+
+    # the caller still sees the decoded value (inline vs by-ref is a wire choice)
+    assert result == "ABC123"
+    # Y is now a DataRef to the canonical value bytes (UTF-8 "ABC123"), not inline
+    value_hash = hashlib.sha256(b"ABC123").hexdigest()
+    expected_y = json.dumps(
+        {"hash": value_hash, "suite": "sha256", "type_ref": result_t},
+        separators=(",", ":"),
+        sort_keys=True,
+    )
+    c = hashlib.sha256(b"pretend-component-bytes").hexdigest()
+    assert stroke.args == (c, "caps", '"abc123"', expected_y)
+    # the referent bytes sit in the outbox for the next `dsm paint` to ship
+    assert (blob_dir(files) / value_hash).read_bytes() == b"ABC123"
+
+
+def test_witnessed_call_by_ref_falls_back_inline_for_unrenderable_type(tmp_path: Path):
+    files = _files(tmp_path)
+    component = tmp_path / "component.wasm"
+    component.write_bytes(b"pretend-component-bytes")
+    engine = _ScriptedEngine(raw="7")
+
+    # a result type SP's renderer won't decode: stay inline, never guess
+    _result, stroke = witnessed_call(
+        files, engine, component, "count", [],
+        result_ref=("u32", hashlib.sha256(b"u32").hexdigest()),
+    )
+    assert stroke.args[3] == "7"
 
 
 # --- witnessing interfaces (interface/v1) -------------------------------------
