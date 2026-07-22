@@ -37,6 +37,9 @@ from desmata.exceptions import ArtifactPinMismatch, CellUnavailable, PublishMism
 from desmata.invoke import build_invoker
 from desmata.keys import peer_key
 from desmata.paint import (
+    deref_arg_value,
+    fetch_data_ref_bytes,
+    looks_like_data_ref,
     publish_strokes,
     result_type_ref,
     ship_blobs,
@@ -498,6 +501,11 @@ def call(
         "(a DataRef the verifier dereferences) instead of inline WAVE, when the "
         "cell pins wasm-tools and the result type is renderable",
     ),
+    fetch_from: Optional[str] = typer.Option(
+        None, "--fetch-from", help="an SP node URL to dereference a DataRef "
+        "argument from, when the referent bytes are not already in the local "
+        "outbox (a value another peer produced)",
+    ),
     verbose: bool = typer.Option(False, "--verbose", "-v"),
     home: Optional[Path] = typer.Option(
         None, "--home", help="sandbox desmata's state under this directory instead of the XDG dirs"
@@ -567,13 +575,42 @@ def call(
                 result_ref = result_type_ref(
                     extractor, cell_dir / artifact, function
                 )
+            # input-by-reference: a lone DataRef argument is dereferenced — from
+            # the local outbox, or --fetch-from a node holding it — and the claim
+            # records the DataRef as X while the engine runs on the concrete
+            # value (stroke_dependencies.md §8, input half). The composer feeds
+            # one cell's by-reference output straight into the next.
+            exec_args = parsed_args
+            witnessed_x = None
+            if len(parsed_args) == 1 and looks_like_data_ref(parsed_args[0]):
+                data_ref = parsed_args[0]
+                data_bytes = fetch_data_ref_bytes(
+                    factory.userspace, data_ref, node_url=fetch_from
+                )
+                if data_bytes is None:
+                    typer.echo(
+                        f"cannot dereference argument {data_ref['hash'][:12]}…: "
+                        "not in the local outbox, and no --fetch-from node has it"
+                    )
+                    raise typer.Exit(code=1)
+                value = deref_arg_value(data_bytes, data_ref.get("type_ref"))
+                if value is None:
+                    typer.echo(
+                        "cannot dereference argument: its typeRef is absent or "
+                        "not a renderable type (string / list<u8>)"
+                    )
+                    raise typer.Exit(code=1)
+                exec_args = [value]
+                witnessed_x = json.dumps(
+                    data_ref, separators=(",", ":"), sort_keys=True
+                )
             # the pins were verified above, so the act is worth witnessing: an
             # evaluates_to claim lands in the ledger (and the component bytes,
             # plus any by-reference result blob, in the paint outbox) for the
             # next `dsm paint`
             result, _ = witnessed_call(
                 factory.userspace, invoker, cell_dir / artifact, function,
-                parsed_args, result_ref=result_ref,
+                exec_args, result_ref=result_ref, witnessed_x=witnessed_x,
             )
             # and, when the cell's flake pins wasm-tools, project this
             # function's WIT interface into interface/v1 strokes beside the

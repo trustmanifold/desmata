@@ -60,6 +60,11 @@ PUBLISH_PATH = "/api/publish"
 # node derived from the bytes it received).
 PUT_DATA_PATH = "/api/put_data"
 
+# And its read side: fetch bytes a node holds by hash — the inverse of
+# put_data, used to dereference a by-reference argument the composer feeds
+# from a value another peer produced (stroke_dependencies.md §8, input half).
+FETCH_PATH = "/api/fetch"
+
 
 @dataclass(frozen=True)
 class Published:
@@ -159,6 +164,47 @@ def result_ref_value(wave_result: str, result_text: str) -> bytes | None:
     return None
 
 
+def looks_like_data_ref(value: Any) -> bool:
+    """Whether a parsed call argument is a content-addressed ``DataRef`` (a JSON
+    object carrying ``hash``+``suite``) rather than an inline value — the same
+    discriminator SP's ``resolve_wave_arg`` uses on the wire."""
+    return isinstance(value, dict) and "hash" in value and "suite" in value
+
+
+def deref_arg_value(data_bytes: bytes, type_ref: str | None) -> Any | None:
+    """The Python value a by-reference argument's bytes decode to — the inverse
+    of :func:`result_ref_value` (and of SP's ``render_wave``): a ``string`` is
+    the UTF-8 text, a ``list<u8>`` the list of byte ints. ``typeRef`` is
+    **self-checked** against ``sha256(type text)`` for the supported set, so it
+    is verified, not trusted; any other type (or an absent ``typeRef``) returns
+    ``None`` — the argument can't be dereferenced, so the composition can't
+    proceed rather than guess."""
+    if type_ref == hashlib.sha256(b"string").hexdigest():
+        return data_bytes.decode()
+    if type_ref == hashlib.sha256(b"list<u8>").hexdigest():
+        return list(data_bytes)
+    return None
+
+
+def fetch_data_ref_bytes(
+    files: UserspaceFiles,
+    data_ref: dict,
+    node_url: str | None = None,
+    timeout: float = 30.0,
+) -> bytes | None:
+    """The referent bytes for a ``DataRef`` argument: the local paint outbox
+    first (a peer that produced the value by ``--result-by-ref`` already holds
+    it under the same key), then a node's ``/api/fetch`` when ``node_url`` is
+    given (a value a *different* peer produced). ``None`` when neither has it."""
+    digest = data_ref["hash"]
+    local = blob_dir(files) / digest
+    if local.exists():
+        return local.read_bytes()
+    if node_url is not None:
+        return post_fetch(node_url, digest, timeout=timeout)
+    return None
+
+
 def result_type_ref(
     extractor: WitExtractor, component: Path, function: str
 ) -> tuple[str, str] | None:
@@ -185,6 +231,7 @@ def witnessed_call(
     function: str,
     args: Sequence[Any],
     result_ref: tuple[str, str] | None = None,
+    witnessed_x: str | None = None,
 ) -> tuple[Any, Brushstroke]:
     """Invoke a lightweight-cell function and witness the act as an
     ``evaluates_to(C, F, X, Y)`` claim in the provenance ledger.
@@ -206,12 +253,20 @@ def witnessed_call(
     half). An unrenderable type falls back to inline — the value is always
     faithfully witnessed either way.
 
+    When ``witnessed_x`` is supplied it is the X the claim records — a
+    ``DataRef`` the caller dereferenced to build ``args`` (the input half): the
+    engine still runs on the concrete ``args``, but the witnessed claim says
+    "F applied to (the value at this hash) yields Y", so a verifier dereferences
+    X the same way. ``args`` is always the executed input; X is inline unless
+    overridden.
+
     Returns the decoded result (what plain ``invoke`` would have returned)
     and the witnessed stroke."""
     data = Path(component).read_bytes()
     component_hash = stash_blob(files, data)
     args_wave = wave.encode_args(args)
     raw = invoker.invoke_raw(component, function, args_wave)
+    x = args_wave if witnessed_x is None else witnessed_x
     y = raw
     if result_ref is not None:
         result_text, type_ref = result_ref
@@ -229,7 +284,7 @@ def witnessed_call(
     stroke = Brushstroke(
         color=SP_EVALUATES_TO,
         palette=SP_REPRODUCIBILITY_PALETTE,
-        args=(component_hash, function, args_wave, y),
+        args=(component_hash, function, x, y),
         created_at=Brushstroke.now_ms(),
     )
     save_brushstrokes(files, [stroke])
@@ -366,3 +421,30 @@ def post_put_data(node_url: str, data: bytes, timeout: float = 30.0) -> dict:
     )
     with urllib.request.urlopen(request, timeout=timeout) as response:
         return json.loads(response.read())["ref"]
+
+
+def post_fetch(node_url: str, digest: str, timeout: float = 30.0) -> bytes | None:
+    """Fetch the bytes a node holds under ``digest`` (its ``/api/fetch``), or
+    ``None`` when the node does not have them. The read inverse of
+    :func:`post_put_data`: dereferencing a by-reference argument whose referent a
+    *different* peer produced (a same-peer value is already in the local outbox).
+    Content addressing is re-checked — the returned bytes must sha256 to
+    ``digest`` — so a node cannot substitute a different value under a hash."""
+    body = json.dumps({"hash": digest}, separators=(",", ":")).encode()
+    request = urllib.request.Request(
+        node_url.rstrip("/") + FETCH_PATH,
+        data=body,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(request, timeout=timeout) as response:
+        payload = json.loads(response.read())
+    if not payload.get("available"):
+        return None
+    data = base64.b64decode(payload["bytes_b64"])
+    if hashlib.sha256(data).hexdigest() != digest:
+        raise PublishMismatch(
+            f"node at {node_url} returned bytes for {digest} that hash to "
+            f"{hashlib.sha256(data).hexdigest()}: content addressing disagrees"
+        )
+    return data

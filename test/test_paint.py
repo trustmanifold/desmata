@@ -26,9 +26,15 @@ from desmata.fs import DesmataFiles
 from desmata.keys import fingerprint, key_path, peer_key
 from desmata.log import TestLoggers
 from desmata.paint import (
+    FETCH_PATH,
     PUBLISH_PATH,
     PUT_DATA_PATH,
     blob_dir,
+    deref_arg_value,
+    fetch_data_ref_bytes,
+    looks_like_data_ref,
+    post_fetch,
+    post_put_data,
     publish_strokes,
     result_ref_value,
     result_type_ref,
@@ -136,6 +142,13 @@ class _StubNode:
                             else len(data)
                         )
                     payload = json.dumps({"ref": ref}).encode()
+                elif self.path == FETCH_PATH:
+                    data = outer.blobs.get(decoded["hash"])
+                    payload = json.dumps(
+                        {"available": data is not None,
+                         "bytes_b64": base64.b64encode(data).decode()
+                         if data is not None else None}
+                    ).encode()
                 else:
                     raise AssertionError(f"unexpected POST {self.path}")
                 self.send_response(200)
@@ -321,6 +334,79 @@ def test_witnessed_call_by_ref_falls_back_inline_for_unrenderable_type(tmp_path:
         result_ref=("u32", hashlib.sha256(b"u32").hexdigest()),
     )
     assert stroke.args[3] == "7"
+
+
+# --- dereferencing a by-reference ARGUMENT (input half) -----------------------
+
+
+def test_looks_like_data_ref_discriminates():
+    assert looks_like_data_ref({"hash": "aa", "suite": "sha256"})
+    assert not looks_like_data_ref("abc123")  # an inline string
+    assert not looks_like_data_ref([1, 2, 3])  # an inline list
+    assert not looks_like_data_ref({"suite": "sha256"})  # no hash
+
+
+def test_deref_arg_value_inverts_the_renderer():
+    string_t = hashlib.sha256(b"string").hexdigest()
+    listu8_t = hashlib.sha256(b"list<u8>").hexdigest()
+    assert deref_arg_value(b"abc123", string_t) == "abc123"
+    assert deref_arg_value(b"ABC", listu8_t) == [65, 66, 67]
+    # absent or unsupported typeRef -> None (can't compose, don't guess)
+    assert deref_arg_value(b"abc", None) is None
+    assert deref_arg_value(b"abc", hashlib.sha256(b"u32").hexdigest()) is None
+
+
+def test_fetch_data_ref_bytes_prefers_the_local_outbox(tmp_path: Path):
+    files = _files(tmp_path)
+    digest = stash_blob(files, b"abc123")  # produced locally (--result-by-ref)
+    ref = {"hash": digest, "suite": "sha256"}
+    # no node needed: it's already in the outbox
+    assert fetch_data_ref_bytes(files, ref, node_url=None) == b"abc123"
+
+
+def test_post_fetch_reads_bytes_by_hash(tmp_path: Path):
+    with _StubNode() as node:
+        post_put_data(node.url, b"abc123")  # a value another peer produced
+        digest = hashlib.sha256(b"abc123").hexdigest()
+        # post_fetch returns exactly those bytes, re-checked against the hash
+        assert post_fetch(node.url, digest) == b"abc123"
+        # a hash the node doesn't hold -> None (not an error)
+        assert post_fetch(node.url, hashlib.sha256(b"nope").hexdigest()) is None
+
+
+def test_fetch_data_ref_bytes_falls_back_to_the_node(tmp_path: Path):
+    files = _files(tmp_path)
+    with _StubNode() as node:
+        post_put_data(node.url, b"abc123")
+        ref = {"hash": hashlib.sha256(b"abc123").hexdigest(), "suite": "sha256"}
+        # not in our outbox, so it comes from the --fetch-from node
+        assert fetch_data_ref_bytes(files, ref, node_url=node.url) == b"abc123"
+        # absent from both outbox and node -> None
+        missing = {"hash": hashlib.sha256(b"nope").hexdigest(), "suite": "sha256"}
+        assert fetch_data_ref_bytes(files, missing, node_url=node.url) is None
+
+
+def test_witnessed_call_records_a_by_reference_x(tmp_path: Path):
+    files = _files(tmp_path)
+    component = tmp_path / "component.wasm"
+    component.write_bytes(b"pretend-component-bytes")
+    engine = _ScriptedEngine(raw='"ABC123"')
+    x_ref = json.dumps(
+        {"hash": hashlib.sha256(b"abc123").hexdigest(), "suite": "sha256",
+         "type_ref": hashlib.sha256(b"string").hexdigest()},
+        separators=(",", ":"), sort_keys=True,
+    )
+
+    # the engine runs on the concrete value, but X records the DataRef
+    result, stroke = witnessed_call(
+        files, engine, component, "caps", ["abc123"], witnessed_x=x_ref
+    )
+
+    assert result == "ABC123"
+    c = hashlib.sha256(b"pretend-component-bytes").hexdigest()
+    assert stroke.args == (c, "caps", x_ref, '"ABC123"')
+    # the engine still received the executed (inline) args, not the ref
+    assert engine.calls == [(component, "caps", '"abc123"')]
 
 
 # --- witnessing interfaces (interface/v1) -------------------------------------

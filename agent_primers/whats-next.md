@@ -185,8 +185,14 @@ renderable set, else inline), `stash_blob`s them into the outbox `ship_blobs`
 already ships, and emits Y as a `DataRef {hash, suite, type_ref}` whose
 `type_ref` is the same `result_t` the interface witness mints. An SP wasmtime
 node then confirms by re-executing **and dereferencing Y** (SP's consumer half,
-both `X` and `Y`). The composer/input side (a `DataRef` *arg* fed to `dsm call`,
-which needs a fetch client desmata lacks) rides with §4.
+both `X` and `Y`). **Input half LANDED 2026-07-22** (same §8): `dsm call` takes
+a `DataRef` *argument* — `--fetch-from <node>` (or the local outbox, for a value
+this peer produced) supplies the referent bytes via the new `post_fetch` (the
+read inverse of `post_put_data`), `deref_arg_value` renders them per a
+self-checked `typeRef`, and the call witnesses `X` **by reference** while the
+engine runs on the concrete value. So a composer feeds one cell's by-reference
+output straight into the next; only automatic closure shipping (§4 proper, the
+referent arriving without a fetch/preload) remains.
 
 Design: [interface-palette.md](./interface-palette.md) (desmata's half);
 canonical doc in SP `docs/design/interface_palette.md`. The problem:
