@@ -79,7 +79,7 @@ class Attestation:
 # bytes change, SP's full tier fails until the pin here is updated and SP
 # re-runs `nix flake update desmata`.
 SP_REPRODUCIBILITY_PALETTE = (
-    "125da0d0df7ff2525b78a1a132977f7d99ba8b6d72ada1773ff58ed9d78aa4e0"
+    "fcdb5ca834de2b1bdbd9d348f823d7cdab74c01597589210489b5ba31e6402d8"
 )
 SP_BUILDS_TO = "builds_to"    # builds_to(Recipe|StorePath [key], NarHash [value])
 SP_REFERENCES = "references"  # references(StorePath [key], Dep [value]) — a closure edge
@@ -97,7 +97,7 @@ SP_EVALUATES_TO = "evaluates_to"
 # component, re-derive the canonical WIT text, compare hashes; no execution.
 # Hash pin of SP `palettes/interface.json` (same discipline as above).
 SP_INTERFACE_PALETTE = (
-    "e5f83a4c29eca70765de775a47a1b48712363cc7b016e52057f61a2a368a3081"
+    "336cb3368ffe466d2f23b0b49d979305f93cfc224a102542e4186b6647ff0731"
 )
 # type_def(T [key], WitText [value]): T = sha256-hex of the canonical WIT type
 # text, which the stroke carries as its own preimage — so any node confirms it
