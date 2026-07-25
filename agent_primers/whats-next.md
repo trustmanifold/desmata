@@ -50,11 +50,14 @@ sharp-edge shaving — before the demo era. SP's 2026-07-24 demos audit
 **no missing fundamentals** on either side of the seam. **The §5
 keystone (palettes are cells) was ADOPTED 2026-07-24** — its wake-up
 fired (SP `docs/design/palettes_are_cells.md` is the decision record;
-build order in SP's ROADMAP status paragraph): the polish era opens by
-finishing the keystone — content-addressed palettes, the palette-cell
-layout + a first out-of-tree palette-cell pilot, `semp build`/`fmt`,
-then the egress gate + `semp` inspection — before a deliberate
-pause-and-review. desmata's polish-era share stays small and already
+build order in SP's ROADMAP status paragraph), and the keystone is
+**COMPLETE 2026-07-25**: content-addressed palettes (desmata's palette
+constants are hash pins now), the palette-cell layout + the
+margin-palette pilot, `semp build`/`fmt` (SP palettes compile from `.dl`
+sources — pins move when bytes move), and the egress gate + `semp node`
+inspection. The §2 pubkey residue also closed (`1bfc3dc`): `dsm paint`
+introduces its own key via `placer_pubkeys`, and SP's harness deleted
+its pre-introduction crutch. **Now: the deliberate pause-and-review.** desmata's polish-era share stays small and already
 filed: the two keystone door-openers in §5 below (reserve the `palette`
 interface kind; `semp` on the one nushell convention), the deferred
 `dsm publish` verb and the memoization-cache-as-usage-docs tooling
@@ -100,17 +103,14 @@ SP consumes desmata via a `git+file` flake input pinned to this repo's
   what packaging SP itself as a (Category-2, distributable-artifact) cell
   needs. The gossip half (`cell-session` runner + predicate colors) stays
   deferred (§5). Next: SP-as-a-cell (its spd daemon reuses this seam).
-- **Send our pubkey with the paint [desmata]** — the SP side of
-  ingest-time signature verification LANDED 2026-07-17 (SP ROADMAP §2.1):
-  a pre-signed stroke is dropped unless its signature verifies against a
-  resolvable placer key, and the Publish request grew an optional
-  `placer_pubkeys` field (base64 raw ed25519; self-certifying, since the
-  placer id is the key's SHA-256). Until `dsm paint` includes its own key
-  there, SP's harness pre-introduces it out of band (it mints the
-  userspace identity itself and publishes an empty introduction before
-  the paint) — one line in `paint`'s publish body deletes that crutch.
-  Our `PublishMismatch` round-trip already fails loudly if a node rejects
-  the stroke.
+- **LANDED (2026-07-25): Send our pubkey with the paint [desmata]** —
+  `post_publish` now carries the peer's raw Ed25519 key as
+  `placer_pubkeys` (self-certifying: the placer id is the key's SHA-256),
+  so a first paint from a stranger verifies at SP's publish door (its
+  §2.1 check LANDED 2026-07-17) with no out-of-band introduction; SP's
+  harness deleted its pre-introduction crutch the same day. Our
+  `PublishMismatch` round-trip still fails loudly if a node rejects the
+  stroke.
 - **LANDED (2026-07-17): Forward-compatibility rule [both]** — "ignore
   unknown fields" on the brushstroke wire record and palette JSON is now
   normative (SP `protocol_design.md` §6) and pinned by tests on all
