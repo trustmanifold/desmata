@@ -37,10 +37,21 @@ repeated — the WIT half already landed, the flake half deferred.
 
 **Where it stands:** proven whole, in a repeatable artifact — SP's
 `scenarios/memoized_call.yaml` (landed 2026-07-17, §1), in SP's full
-pytest tier and replayable in the viewer. Ingest-time signature
-verification landed on the SP side the same day — the node now checks our
-placer signatures at the publish door; our residue is sending our pubkey
-with the paint (§2).
+pytest tier and replayable in the viewer. Since then the whole planned
+build arc closed on both sides: SP's §2 holes, the interface palette
+(§3, both halves — witness here, `wit-parse` there, byte-for-byte
+canonical WIT), demo v2 (a node wiring a stranger's two cells), and
+stroke dependencies (SP §4: value-by-reference, blob co-shipping, FK
+closures, the closure hash) all landed 2026-07-17→23. **Next is a
+polish era, not a build rung** — testing, observability (`semp`),
+sharp-edge shaving — before the demo era. SP's 2026-07-24 demos audit
+(SP ROADMAP status paragraph + new §5 rows; decision records
+`design/supersession.md`, `design/confidentiality_posture.md`) found
+**no missing fundamentals** on either side of the seam. desmata's
+polish-era share is small and already filed: the deferred `dsm publish`
+verb and the memoization-cache-as-usage-docs tooling (both §3.2
+residue), and keeping the pinned-`dsm` flake-bump ritual green as SP's
+test tiers grow.
 
 ---
 
@@ -246,6 +257,28 @@ invocation contract. Standing note: SP keeps its store behind an
 interface these closure/FK queries fit, in-memory now, database later.
 
 ## 5. Deferred, deliberately
+
+**Keystone (standing) — palettes are cells [mostly SP].** SP's
+`docs/ROADMAP.md` §5 now names the organizing decision this doc's rows have
+been circling: *a palette is a cell whose interface kind is `palette`*, which
+collapses five deferred rows into one — content-addressed palettes, the `semp`
+CLI (palette-derived clients), the Scenario-playground row's palette cells
+(already named below), language-neutral cells' `cell.toml`-as-`palette.toml`,
+and palette-authored trust primitives. It is the nucleus-membrane discipline
+([language-neutral-cells.md](./language-neutral-cells.md)) applied to palettes.
+desmata's share is small but real, and both halves are door-opening, not build:
+**(a)** when the `cell.toml` schema is written (Language-neutral cells row),
+**reserve a `palette` interface kind** so a palette-cell is not a special case —
+the extraction SP needs is "read the palette JSON + its verifier-cell closure
+out of a cell through its declared interface," the same shape as any other kind
+([interface-palette.md](./interface-palette.md) §4's open kind vocabulary);
+**(b)** `semp` and `dsm` are two apps on one node
+([desmata-as-semantic-paint-app.md](./desmata-as-semantic-paint-app.md)) and a
+user in a palette-cell repo wants both, so `semp` must share the **one**
+nushell-typed-output convention the [nushell-plugin.md](./nushell-plugin.md)
+work just established (`--output json` + a generic converter), not fork a second
+one. No new desmata mechanism — the session/hermetic-home seams the playground
+rides already landed (§2).
 
 | Item | Why deferred | Wake-up condition |
 |---|---|---|
