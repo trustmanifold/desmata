@@ -47,11 +47,19 @@ polish era, not a build rung** — testing, observability (`semp`),
 sharp-edge shaving — before the demo era. SP's 2026-07-24 demos audit
 (SP ROADMAP status paragraph + new §5 rows; decision records
 `design/supersession.md`, `design/confidentiality_posture.md`) found
-**no missing fundamentals** on either side of the seam. desmata's
-polish-era share is small and already filed: the deferred `dsm publish`
-verb and the memoization-cache-as-usage-docs tooling (both §3.2
-residue), and keeping the pinned-`dsm` flake-bump ritual green as SP's
-test tiers grow.
+**no missing fundamentals** on either side of the seam. **The §5
+keystone (palettes are cells) was ADOPTED 2026-07-24** — its wake-up
+fired (SP `docs/design/palettes_are_cells.md` is the decision record;
+build order in SP's ROADMAP status paragraph): the polish era opens by
+finishing the keystone — content-addressed palettes, the palette-cell
+layout + a first out-of-tree palette-cell pilot, `semp build`/`fmt`,
+then the egress gate + `semp` inspection — before a deliberate
+pause-and-review. desmata's polish-era share stays small and already
+filed: the two keystone door-openers in §5 below (reserve the `palette`
+interface kind; `semp` on the one nushell convention), the deferred
+`dsm publish` verb and the memoization-cache-as-usage-docs tooling
+(both §3.2 residue), and keeping the pinned-`dsm` flake-bump ritual
+green as SP's test tiers grow.
 
 ---
 
@@ -258,8 +266,11 @@ interface these closure/FK queries fit, in-memory now, database later.
 
 ## 5. Deferred, deliberately
 
-**Keystone (standing) — palettes are cells [mostly SP].** SP's
-`docs/ROADMAP.md` §5 now names the organizing decision this doc's rows have
+**Keystone — palettes are cells [mostly SP] — ADOPTED 2026-07-24.** The
+wake-up fired (`semp` + content-addressed palette-cells wanted together, ahead
+of the planned pause-and-review); SP `docs/design/palettes_are_cells.md` is the
+decision record and carries the build order. SP's
+`docs/ROADMAP.md` §5 names the organizing decision this doc's rows had
 been circling: *a palette is a cell whose interface kind is `palette`*, which
 collapses five deferred rows into one — content-addressed palettes, the `semp`
 CLI (palette-derived clients), the Scenario-playground row's palette cells

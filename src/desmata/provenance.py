@@ -70,7 +70,17 @@ class Attestation:
 # A reproducibility palette carries *verifiable* colors (SP §2.8): claims a
 # recipient can confirm by re-execution, where trust scoring is a recompute-saving
 # fallback rather than the only basis for belief.
-SP_REPRODUCIBILITY_PALETTE = "reproducibility/v1"
+#
+# Palette identifiers are HASHES (SP design/palettes_are_cells.md §2): the
+# sha256 of the exact bytes of the palette's canonical JSON — here SP's
+# builtin `palettes/reproducibility.json` / `palettes/interface.json`. A
+# name can misrepresent; a digest re-derives or it doesn't. These pins move
+# with the same ritual as the dsm flake input: when SP's builtin palette
+# bytes change, SP's full tier fails until the pin here is updated and SP
+# re-runs `nix flake update desmata`.
+SP_REPRODUCIBILITY_PALETTE = (
+    "125da0d0df7ff2525b78a1a132977f7d99ba8b6d72ada1773ff58ed9d78aa4e0"
+)
 SP_BUILDS_TO = "builds_to"    # builds_to(Recipe|StorePath [key], NarHash [value])
 SP_REFERENCES = "references"  # references(StorePath [key], Dep [value]) — a closure edge
 # evaluates_to(Component [key], Function [key], ArgsWave [key], ResultWave
@@ -85,7 +95,10 @@ SP_EVALUATES_TO = "evaluates_to"
 # minted beside `evaluates_to` (:mod:`desmata.wit`, :func:`desmata.paint.
 # witness_interface`). Verified SP-side by the `wit-parse` runner — fetch the
 # component, re-derive the canonical WIT text, compare hashes; no execution.
-SP_INTERFACE_PALETTE = "interface/v1"
+# Hash pin of SP `palettes/interface.json` (same discipline as above).
+SP_INTERFACE_PALETTE = (
+    "e5f83a4c29eca70765de775a47a1b48712363cc7b016e52057f61a2a368a3081"
+)
 # type_def(T [key], WitText [value]): T = sha256-hex of the canonical WIT type
 # text, which the stroke carries as its own preimage — so any node confirms it
 # offline, no blob needed.
