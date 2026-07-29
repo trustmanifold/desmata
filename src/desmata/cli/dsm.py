@@ -418,7 +418,7 @@ def paint(
 
     Everything this userspace has witnessed (``builds_to`` attestations
     minted while realizing artifact dependencies, ``evaluates_to`` claims
-    minted by ``dsm call``) is signed under the peer's placer identity and
+    minted by ``dsm call``) is signed under the peer's signer identity and
     POSTed to the node, along with the outbox blobs those claims dereference
     (the wasm components behind ``evaluates_to``, so the node's cell-wasm
     runner can re-execute them). The node's acknowledgement must agree with
@@ -443,7 +443,7 @@ def paint(
     if not published:
         typer.echo("nothing witnessed yet: no brushstrokes to publish")
         return
-    typer.echo(f"as placer {key.placer[:12]}… published:")
+    typer.echo(f"as signer {key.signer[:12]}… published:")
     for p in published:
         args = ", ".join(_short_cid(_short(a)) for a in p.stroke.args)
         typer.echo(f"  {p.stroke.color}({args}) -> {p.content_id[:12]}…")

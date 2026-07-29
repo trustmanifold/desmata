@@ -85,11 +85,11 @@ def test_peer_key_is_minted_once_and_reloads(tmp_path: Path):
     first = peer_key(files)
     again = peer_key(files)
     # same key both times: one identity per userspace
-    assert first.placer == again.placer
+    assert first.signer == again.signer
     assert first.public_key == again.public_key
-    # the placer handle is SP's fingerprint format: hex sha256 of the raw pubkey
-    assert first.placer == fingerprint(first.public_key)
-    assert len(first.placer) == 64 and set(first.placer) <= set("0123456789abcdef")
+    # the signer handle is SP's fingerprint format: hex sha256 of the raw pubkey
+    assert first.signer == fingerprint(first.public_key)
+    assert len(first.signer) == 64 and set(first.signer) <= set("0123456789abcdef")
     # key material is private to the user
     assert key_path(files).stat().st_mode & 0o777 == 0o600
 
@@ -97,7 +97,7 @@ def test_peer_key_is_minted_once_and_reloads(tmp_path: Path):
 def test_signed_stroke_verifies_under_the_peer_public_key(tmp_path: Path):
     key = peer_key(_files(tmp_path))
     (signed,) = sign_all(_witnessed()[:1], key)
-    assert signed.placer == key.placer
+    assert signed.signer == key.signer
     # raw 64-byte ed25519 over the canonical bytes, as SP's verify_sig checks it
     Ed25519PublicKey.from_public_bytes(key.public_key).verify(
         base64.b64decode(signed.sig), signed.canonical_bytes()
@@ -183,11 +183,11 @@ def test_publish_round_trips_ids_with_the_node(tmp_path: Path):
     # every stroke went out signed, attributed to this peer
     (request,) = node.requests
     for wire in request["brushstrokes"]:
-        assert wire["placer"] == key.placer
+        assert wire["signer"] == key.signer
         assert wire["suite"] == "v1-ed25519-sha256"
         assert wire["sig"]
         assert set(wire) == {
-            "color", "palette", "args", "placer", "created_at",
+            "color", "palette", "args", "signer", "created_at",
             "suite", "sig", "arg_versions",
         }
     # and the ids the node acknowledged are the ids we derived
@@ -550,5 +550,5 @@ def test_witness_then_paint_lands_claim_and_component_on_the_node(tmp_path: Path
     (wire,) = request["brushstrokes"]
     assert wire["color"] == SP_EVALUATES_TO
     assert tuple(wire["args"]) == stroke.args
-    assert wire["placer"] == key.placer
+    assert wire["signer"] == key.signer
     assert (published[0].content_id) == published[0].stroke.content_id()

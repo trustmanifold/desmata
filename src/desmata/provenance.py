@@ -79,7 +79,7 @@ class Attestation:
 # bytes change, SP's full tier fails until the pin here is updated and SP
 # re-runs `nix flake update desmata`.
 SP_REPRODUCIBILITY_PALETTE = (
-    "fcdb5ca834de2b1bdbd9d348f823d7cdab74c01597589210489b5ba31e6402d8"
+    "dff4e3daf046959de9360380f4f5ea0f0149b436ea0dfe542b69076373de2de9"
 )
 SP_BUILDS_TO = "builds_to"    # builds_to(Recipe|StorePath [key], NarHash [value])
 SP_REFERENCES = "references"  # references(StorePath [key], Dep [value]) — a closure edge
@@ -140,7 +140,7 @@ class Brushstroke:
     color: str
     palette: str
     args: tuple[str, ...]
-    placer: str = ""     # signer's identity fingerprint (hex sha256 of the ed25519 pubkey); stamped by signed()
+    signer: str = ""     # signer's identity fingerprint (hex sha256 of the ed25519 pubkey); stamped by signed()
     created_at: int = 0  # ms since epoch, stamped when the claim is minted
     suite: str = ""      # crypto suite id (SP_SUITE); stamped by signed()
     sig: str = ""        # base64 ed25519 over canonical_bytes(); "" until signed
@@ -151,12 +151,12 @@ class Brushstroke:
     def fact(self) -> bytes:
         """The claim itself — (color, palette, args) — independent of who placed
         it and when. Two witnesses of one fact agree on these bytes even though
-        their canonical bytes (timestamped, placer-stamped) differ."""
+        their canonical bytes (timestamped, signer-stamped) differ."""
         obj = [self.color, self.palette, list(self.args)]
         return json.dumps(obj, separators=(",", ":"), ensure_ascii=False).encode()
 
     def canonical_bytes(self) -> bytes:
-        """The canonical form the placer signs and SP's store key is derived
+        """The canonical form the signer signs and SP's store key is derived
         from: a JSON array (not object) of the identity-bearing fields in fixed
         order, ``sig`` excluded — byte-for-byte the output of
         ``spd/core/canonical.gleam``."""
@@ -164,7 +164,7 @@ class Brushstroke:
             self.color,
             self.palette,
             list(self.args),
-            self.placer,
+            self.signer,
             self.created_at,
             self.suite,
             [[i, v] for i, v in (self.arg_versions or ())],
@@ -177,16 +177,16 @@ class Brushstroke:
 
     def signed(
         self,
-        placer: str,
+        signer: str,
         sign: Callable[[bytes], bytes],
         suite: str = SP_SUITE,
     ) -> "Brushstroke":
-        """Return a copy stamped with ``placer`` (the signer's identity
+        """Return a copy stamped with ``signer`` (the signer's identity
         fingerprint) and signed — mirroring ``canonical.sign``: the signature
-        covers the canonical bytes with the placer stamped and ``sig`` empty.
+        covers the canonical bytes with the signer stamped and ``sig`` empty.
         ``sign`` is the peer's ed25519 signer (desmata peer key == Trustix
-        LogSigner == SP placer key)."""
-        stamped = replace(self, placer=placer, suite=suite, sig="")
+        LogSigner == SP signer key)."""
+        stamped = replace(self, signer=signer, suite=suite, sig="")
         sig = base64.b64encode(sign(stamped.canonical_bytes())).decode()
         return replace(stamped, sig=sig)
 
@@ -196,7 +196,7 @@ class Brushstroke:
             "color": self.color,
             "palette": self.palette,
             "args": list(self.args),
-            "placer": self.placer,
+            "signer": self.signer,
             "created_at": self.created_at,
             "suite": self.suite,
             "sig": self.sig,
@@ -212,7 +212,7 @@ class Brushstroke:
             color=d["color"],
             palette=d["palette"],
             args=tuple(d["args"]),
-            placer=d.get("placer", ""),
+            signer=d.get("signer", ""),
             created_at=d.get("created_at", 0),
             suite=d.get("suite", ""),
             sig=d.get("sig", ""),
@@ -296,7 +296,7 @@ class NarInfo:
         - one ``references`` edge per closure reference — the bidirectional
           dependency graph desmata wants, expressed as SP links.
 
-        Unsigned; call :meth:`Brushstroke.signed` with the placer fingerprint
+        Unsigned; call :meth:`Brushstroke.signed` with the signer fingerprint
         and peer key when emitting.
         """
         minted = Brushstroke.now_ms()

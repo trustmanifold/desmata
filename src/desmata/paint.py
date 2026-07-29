@@ -5,7 +5,7 @@ This is the desmata side of the SP trust layer's ingestion path
 strokes from the provenance ledger (:mod:`desmata.provenance`), sign each
 under the peer key (:mod:`desmata.keys`), and POST them to an SP node's
 ``/api/publish``. The node stores strokes that arrive signed *as they are* --
-attributed to this peer's placer fingerprint, not re-signed as the node.
+attributed to this peer's signer fingerprint, not re-signed as the node.
 
 The node's ``placed`` reply carries the content ids *it* derived (sha256 over
 its canonical bytes, ``spd/core/canonical.gleam``); we recompute ours and
@@ -75,9 +75,9 @@ class Published:
 
 
 def sign_all(strokes: list[Brushstroke], key: PeerKey) -> list[Brushstroke]:
-    """Stamp and sign witnessed strokes for the wire (placer = the peer's SP
+    """Stamp and sign witnessed strokes for the wire (signer = the peer's SP
     fingerprint; suite = SP's v1-ed25519-sha256)."""
-    return [s.signed(key.placer, key.sign) for s in strokes]
+    return [s.signed(key.signer, key.sign) for s in strokes]
 
 
 def publish_strokes(
@@ -113,13 +113,13 @@ def post_publish(
     """POST signed strokes to the node's publish endpoint; returns the ids the
     node placed them under (in request order, as spd's store fold preserves).
 
-    ``public_key`` (raw Ed25519) rides as ``placer_pubkeys`` — the wire's
-    self-certifying introduction (SP ROADMAP §2.1: a placer id IS the sha256
+    ``public_key`` (raw Ed25519) rides as ``signer_pubkeys`` — the wire's
+    self-certifying introduction (SP ROADMAP §2.1: a signer id IS the sha256
     of its key), so pre-signed strokes verify at the publish door with no
     out-of-band introduction."""
     payload: dict[str, Any] = {"brushstrokes": [s.to_dict() for s in strokes]}
     if public_key is not None:
-        payload["placer_pubkeys"] = [base64.b64encode(public_key).decode()]
+        payload["signer_pubkeys"] = [base64.b64encode(public_key).decode()]
     body = json.dumps(payload, separators=(",", ":")).encode()
     request = urllib.request.Request(
         node_url.rstrip("/") + PUBLISH_PATH,

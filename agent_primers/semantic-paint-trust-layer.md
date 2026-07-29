@@ -73,7 +73,7 @@ A desmata that emits both projections interoperates with the Trustix ecosystem
 
 The `Attestation → brushstroke` projection exists beside `trustix_key/value`:
 `provenance.Brushstroke`, whose field set is SP's wire record **verbatim**
-(`color, palette, args, placer, created_at, suite, sig, arg_versions` —
+(`color, palette, args, signer, created_at, suite, sig, arg_versions` —
 SemanticPaint `haxe/src/api/types/Brushstroke.hx`, the schema source behind its
 generated Python/Gleam/TS types) and whose `canonical_bytes()` matches SP's
 `spd/core/canonical.gleam` byte-for-byte: a compact JSON *array* of the
@@ -92,10 +92,10 @@ The mapping, as built:
   policy — live on the color's verification facet in the palette definition,
   not on the stroke** (SP §2.8 keeps them per-color; the stroke stays a bare
   signed fact);
-- signed by the peer key (`Brushstroke.signed(placer_fingerprint, signer)`,
+- signed by the peer key (`Brushstroke.signed(signer_fingerprint, signer)`,
   suite `v1-ed25519-sha256`) — desmata peer key == Trustix LogSigner == SP
-  placer key. The peer key is real now (`keys.py`: one Ed25519 keypair per
-  userspace, `data/identity/peer.ed25519`; the placer handle is the
+  signer key. The peer key is real now (`keys.py`: one Ed25519 keypair per
+  userspace, `data/identity/peer.ed25519`; the signer handle is the
   lowercase-hex sha256 of the raw pubkey, byte-for-byte SP's
   `identity.gleam` fingerprint). Witnesses persist *unsigned*; signing
   happens at publish time.
@@ -103,7 +103,7 @@ The mapping, as built:
 Publish-time is built (`paint.py`, surfaced as `dsm paint <node-url>`):
 sign the ledger's witnessed strokes under the peer key and POST them to the
 node's `/api/publish`. The node stores a pre-signed stroke **as-is** —
-attributed to the desmata placer, not re-signed as the node
+attributed to the desmata signer, not re-signed as the node
 (`state.gleam publish`; its gleam tests pin both branches) — and replies
 with the content ids it derived from *its* canonical bytes. desmata requires
 those ids to equal its own, so every publish round-trips the

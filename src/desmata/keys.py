@@ -2,13 +2,13 @@
 
 This is the single signing identity a desmata peer presents to every trust
 layer it speaks to (``agent_primers/semantic-paint-trust-layer.md``): the
-Semantic Paint *placer* key and the Trustix ``LogSigner`` are the same key,
+Semantic Paint *signer* key and the Trustix ``LogSigner`` are the same key,
 which is what lets one captured attestation serve both projections without
 re-signing ceremonies.
 
-The identity handle (:attr:`PeerKey.placer`) is the lowercase-hex SHA-256 of
+The identity handle (:attr:`PeerKey.signer`) is the lowercase-hex SHA-256 of
 the raw 32-byte public key — byte-for-byte the fingerprint SP's
-``spd/core/identity.gleam`` derives for its ``node_id``, so a desmata placer
+``spd/core/identity.gleam`` derives for its ``node_id``, so a desmata signer
 is addressable in SP exactly like a node identity.
 
 The key material lives in the userspace (``data/identity/peer.ed25519``, raw
@@ -33,9 +33,9 @@ from desmata.lower_protocols import UserspaceFiles
 
 @dataclass(frozen=True)
 class PeerKey:
-    """A loaded peer identity: the placer fingerprint plus a signer."""
+    """A loaded peer identity: the signer fingerprint plus a signer."""
 
-    placer: str  # lowercase-hex sha256 of the raw public key
+    signer: str  # lowercase-hex sha256 of the raw public key
     public_key: bytes  # raw 32 bytes
     _key: Ed25519PrivateKey = field(repr=False)
 
@@ -68,4 +68,4 @@ def peer_key(files: UserspaceFiles) -> PeerKey:
             key.private_bytes(Encoding.Raw, PrivateFormat.Raw, NoEncryption())
         )
     public = key.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
-    return PeerKey(placer=fingerprint(public), public_key=public, _key=key)
+    return PeerKey(signer=fingerprint(public), public_key=public, _key=key)

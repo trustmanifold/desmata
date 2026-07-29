@@ -119,7 +119,7 @@ def _sample_stroke() -> Brushstroke:
 def test_brushstroke_canonical_bytes_match_sp():
     # Pinned against SemanticPaint's spd/core/canonical.gleam: a compact JSON
     # *array* of the identity-bearing fields in fixed order (color, palette,
-    # args, placer, created_at, suite, arg_versions-as-pairs), sig excluded,
+    # args, signer, created_at, suite, arg_versions-as-pairs), sig excluded,
     # absent arg_versions rendered []. A change here breaks SP signature
     # verification — change canonical.gleam first, then this vector.
     stroke = _sample_stroke()
@@ -134,10 +134,10 @@ def test_brushstroke_canonical_bytes_match_sp():
 def test_brushstroke_signed_covers_canonical_bytes_with_sig_empty():
     stroke = _sample_stroke()
     signed = stroke.signed("f" * 64, lambda msg: b"MAC:" + msg)
-    # placer and suite are stamped; the signature covers the canonical bytes of
+    # signer and suite are stamped; the signature covers the canonical bytes of
     # the stamped-but-unsigned stroke (sig plays no part in the canonical form,
     # exactly as in canonical.gleam's sign/verify pair)
-    assert signed.placer == "f" * 64
+    assert signed.signer == "f" * 64
     assert signed.suite == SP_SUITE
     assert base64.b64decode(signed.sig) == b"MAC:" + signed.canonical_bytes()
 
@@ -146,7 +146,7 @@ def test_brushstroke_wire_form_matches_sp_decoder():
     # Field names as spd/generated/brushstroke.gleam decodes them (snake_case).
     d = _sample_stroke().signed("f" * 64, lambda _: b"s").to_dict()
     assert set(d) == {
-        "color", "palette", "args", "placer", "created_at",
+        "color", "palette", "args", "signer", "created_at",
         "suite", "sig", "arg_versions",
     }
     assert d["arg_versions"] is None
