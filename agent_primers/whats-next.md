@@ -76,9 +76,9 @@ green as SP's test tiers grow.
 + signed stroke to a live node, which preserves the pre-signed signer.
 Then, all asserted in one run: a wasmtime reader confirms over a
 zero-weight edge (confirmation outranks trust), an engineless node
-accepts on trust of a confirming-and-regrounding relayer, a forged Y is
+accepts on trust of a confirming-and-adopting relayer, a forged Y is
 refuted wherever an engine runs — and believed where only trust decides —
-and far readers hold the claim re-grounded under their friend's key,
+and far readers hold the claim adopted under their friend's key,
 never holding a reference to the desmata signer at all.
 
 SP consumes desmata via a `git+file` flake input pinned to this repo's

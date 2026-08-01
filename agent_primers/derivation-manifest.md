@@ -119,7 +119,7 @@ Runner cost tiers: `wit-parse` (parse) < `evaluates_to` (one sandboxed call) <
 so it will be mostly **trust-mediated with rare foundry confirmation** — and
 that is the feature, not a weakness. A pocket node can't rebuild Rust → wasm;
 but **one honest foundry rebuild, gossiped and confirmed, protects the whole
-network**: everyone else accepts it via trust of confirming-and-re-grounding
+network**: everyone else accepts it via trust of confirming-and-adopting
 peers, and any single honest rebuilder's confirmation outranks the signer's mere
 assertion. The entire reason the trust layer exists is to amortize a rare,
 expensive confirmation across many cheap readers — and build provenance is the
