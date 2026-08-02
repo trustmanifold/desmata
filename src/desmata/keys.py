@@ -8,7 +8,7 @@ re-signing ceremonies.
 
 The identity handle (:attr:`PeerKey.signer`) is the lowercase-hex SHA-256 of
 the raw 32-byte public key — byte-for-byte the fingerprint SP's
-``spd/core/identity.gleam`` derives for its ``node_id``, so a desmata signer
+``spd/core/identity.gleam`` derives for its ``signer_id``, so a desmata signer
 is addressable in SP exactly like a node identity.
 
 The key material lives in the userspace (``data/identity/peer.ed25519``, raw
