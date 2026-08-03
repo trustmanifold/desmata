@@ -1,12 +1,12 @@
+If you're a human, you deserve human written text.  The rest of this README was
+written by a LLM.  If you want to discuss this with a human, drop me a line in the
+issues, I'd love to chat with you about it.
+
 # Desmata
 
 Desmata is an experimental package manager that addresses code and its
 dependencies by **cryptographic hash** instead of by name. When it grows up it
 wants to [calmly](https://arxiv.org/abs/1901.01930) replace `git`.
-
-If you're a human, you deserve human written text.  This README is written by
-a LLM.  If you want to discuss this with a human, drop me a line in the issues,
-I'd love to chat with you about it.
 
 > ### Status: early / pre-alpha
 >
