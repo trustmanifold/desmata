@@ -6,7 +6,7 @@ issues, I'd love to chat with you about it.
 
 Desmata is an experimental package manager that addresses code and its
 dependencies by **cryptographic hash** instead of by name. When it grows up it
-wants to [calmly](https://arxiv.org/abs/1901.01930) replace `git`.
+wants to keep [CALM](https://arxiv.org/abs/1901.01930) and replace git.
 
 > ### Status: early / pre-alpha
 >
